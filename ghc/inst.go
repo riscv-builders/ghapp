@@ -1,6 +1,7 @@
 package ghc
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/riscv-builders/service/db"
@@ -22,6 +23,7 @@ type Config struct {
 type GithubService struct {
 	cfg *Config
 	db  *bun.DB
+	srv *http.Server
 
 	ghtimeout time.Duration
 }

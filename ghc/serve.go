@@ -22,16 +22,26 @@ func (c *GithubService) initAPI() (err error) {
 		slog.Info("event", "webhook", c.cfg.GHSecretKey)
 	}
 
-	http.HandleFunc("/gh/webhook", c.GithubWebhook)
+	if c.cfg.ListenAddr == "" {
+		c.cfg.ListenAddr = ":6946"
+	}
+	slog.Info("api", "listen", c.cfg.ListenAddr)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gh/webhook", c.GithubWebhook)
+
+	c.srv = &http.Server{
+		WriteTimeout:      c.ghtimeout,
+		IdleTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       1 * time.Second,
+		Handler:           mux,
+		Addr:              c.cfg.ListenAddr,
+	}
+
 	return err
 }
 
 func (c *GithubService) Serve() error {
-	addr := c.cfg.ListenAddr
-	if addr == "" {
-		addr = ":6946"
-	}
-
-	slog.Info("api", "listen", addr)
-	return http.ListenAndServe(addr, nil)
+	return c.srv.ListenAndServe()
 }

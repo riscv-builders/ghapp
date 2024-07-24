@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"log/slog"
 	"os"
 
@@ -20,11 +19,11 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	cfg := &ghc.Config{}
-	config.From("bdr.config").FromEnv().To(cfg)
+	config.From("ghc.env").FromEnv().To(cfg)
 	ctrl, err := ghc.New(cfg)
 	if err != nil {
 		slog.Error("github-service", "err", err.Error())
-		panic("")
+		os.Exit(1)
 	}
-	log.Fatal(ctrl.Serve())
+	slog.Info("serve", "log", ctrl.Serve())
 }
