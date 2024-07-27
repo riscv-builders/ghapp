@@ -7,48 +7,58 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type Builder struct {
-	ID     int64 `bun:",pk,autoincrement,default:1" json:"id"`
-	Name   string
-	Cred   string `bun:",type:text" json:"cred"`
-	Meta   string `bun:",type:text"`
-	Labels []string
-	Type   BuilderType
-	Status BuilderStatus
-
-	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-}
-
-type BuilderType string
+type RunnerStatus string
 
 const (
-	BuilderSSH   BuilderType = "ssh"
-	BuilderAgent             = "agent"
-)
-
-type BuilderStatus string
-
-const (
-	BuilderIdle    BuilderStatus = "idle"
-	BuilderWorking               = "working"
-	BuilderDied                  = "died"
+	RunnerScheduled  RunnerStatus = "scheduled"
+	RunnerInProgress              = "in_prgoress"
+	RunnerCompleted               = "completed"
+	RunnerTimeout                 = "timeout"
+	RunnerFailed                  = "failed"
 )
 
 type Runner struct {
-	ID        int64   `bun:",pk,autoincrement,default:1" json:"id"`
-	Builder   Builder `bun:"rel:belongs-to,join:builder_id=id" json:"-"`
-	BuilderID int64   `bun:"connect_id" json:"builder_id"`
-	RunID     int64   `bun:"run_id"`
-	Token     string  `bun:",unique" json:"token"`
-	Labels    map[string]string
+	ID        int64              `bun:",pk,autoincrement,default:1" json:"id"`
+	Builder   *Builder           `bun:"rel:belongs-to,join:builder_id=id" json:"-"`
+	BuilderID int64              `bun:"builder_id" json:"builder_id"`
+	Job       *GithubWorkflowJob `bun:"rel:belongs-to,join:job_id=id" json:"-"`
+	JobID     int64              `bun:"job_id" json:"job_id"`
+
+	Name         string
+	RegToken     string   `bun:",type:text"`
+	Labels       []string `bun:",type:text"`
+	SystemLabels []string `bun:",type:text"`
+	URL          string   `bun:",type:text"`
+	Ephemeral    bool
+	Status       RunnerStatus
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 	ExpiredAt time.Time `json:"expired_at"`
 }
 
-func (r *Runner) BeforeAppendModel(ctx context.Context, query bun.Query) error {
-	r.UpdatedAt = time.Now()
+var _ bun.AfterCreateTableHook = (*Runner)(nil)
+
+func (*Runner) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
+	_, err := query.DB().NewCreateIndex().
+		Model((*Runner)(nil)).
+		Index("runner_status_idx").
+		Column("status").Exec(ctx)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+var _ bun.BeforeAppendModelHook = (*Runner)(nil)
+
+func (g *Runner) BeforeAppendModel(ctx context.Context, query bun.Query) error {
+	switch query.(type) {
+	case *bun.InsertQuery:
+		g.CreatedAt = time.Now()
+		g.UpdatedAt = time.Now()
+	case *bun.UpdateQuery:
+		g.UpdatedAt = time.Now()
+	}
 	return nil
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"log"
+	"log/slog"
 
 	"github.com/JeremyLoy/config"
 	"github.com/riscv-builders/service/coordinator"
@@ -14,5 +16,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(ctrl.Serve())
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+	ctx := context.Background()
+	log.Fatal(ctrl.Serve(ctx))
 }

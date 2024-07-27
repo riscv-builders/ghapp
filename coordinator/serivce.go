@@ -2,221 +2,161 @@ package coordinator
 
 import (
 	"context"
-	"database/sql"
-	"net/http"
-	"strings"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"log/slog"
+	"os"
+	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/riscv-builders/service/db"
 	"github.com/riscv-builders/service/models"
 	"github.com/uptrace/bun"
 )
 
-type Service struct {
+type Coor struct {
 	cfg *Config
 	db  *bun.DB
 
-	apiTimeout    time.Duration
-	tokenDuration time.Duration
+	privateKey  *rsa.PrivateKey
+	jwtExpireAt time.Time
+	jwt         string
 
-	jobCh chan *models.GithubWorkflowJobEvent
+	queue    chan *models.GithubWorkflowJob
+	runner   chan *models.Runner
+	runnerCm sync.Map //key: runner id , val: cancel function
 }
 
-func New(cfg *Config) (*Service, error) {
-	s := &Service{
-		cfg: cfg,
+func loadPrivateFile(p string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
 	}
+
+	pemBlock, _ := pem.Decode(data)
+	return x509.ParsePKCS1PrivateKey(pemBlock.Bytes)
+}
+
+func New(cfg *Config) (*Coor, error) {
+	s := &Coor{
+		cfg:      cfg,
+		queue:    make(chan *models.GithubWorkflowJob),
+		runner:   make(chan *models.Runner),
+		runnerCm: sync.Map{},
+	}
+
 	var err error
 	s.db, err = db.New(cfg.DBURL, cfg.DBType)
 	if err != nil {
 		return nil, err
 	}
-	s.apiTimeout = 10 * time.Second
-	s.tokenDuration = 5 * 24 * time.Hour
-	s.Migrate()
+	s.privateKey, err = loadPrivateFile(cfg.PrivateFile)
+	if err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
-func (s *Service) Migrate() (err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	_, err = s.db.NewCreateTable().Model((*models.Builder)(nil)).Exec(ctx)
-	_, err = s.db.NewCreateTable().Model((*models.Session)(nil)).Exec(ctx)
-	_, err = s.db.NewInsert().Model(&models.Builder{
-		Name:        "root",
-		AccessToken: "root",
-		Sponsor:     "mengzhuo",
-		Status:      "missing",
-		Labels:      map[string]string{"cpu": "2", "region": "cn"},
-	}).Exec(ctx)
-	return
-}
-
-func (s *Service) Serve() error {
-	r := gin.Default()
-	r.POST("/login", s.Login)
-	r.PUT("/self/session", s.RefreshSession)
-	r.POST("/job", s.SearchJob)
-	// r.PUT("/job/:id/status", s.UpdataJobStatus)
-	// r.PUT("/job/:id/logs", s.UpdataJobLogs)
-
-	return r.Run(s.cfg.ListenAddr)
-}
-
-type LoginRequest struct {
-	Name        string            `form:"name" json:"name" binding:"required"`
-	AccessToken string            `form:"access_token" json:"access_token" binding:"required"`
-	Labels      map[string]string `form:"labels" json:"labels"`
-}
-
-func (s *Service) Login(c *gin.Context) {
-	var req LoginRequest
-	if err := c.ShouldBind(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.apiTimeout)
-	defer cancel()
-
-	bdr := &models.Builder{Name: req.Name, AccessToken: req.AccessToken}
-	err := s.db.NewSelect().Model(bdr).Where("name = ? AND access_token = ?",
-		req.Name, req.AccessToken).Scan(ctx)
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
-	}
-	if bdr.ID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	session := &models.Session{}
-	count, err := s.db.NewSelect().Model(session).Where("builder_id = ?", bdr.ID).Count(ctx)
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
-	}
-
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
-	}
-
-	token := uuid.New().String()
-	expiredAt := time.Now().Add(s.tokenDuration)
-	labels := session.Labels
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	// builders labels override!
-	for k, v := range bdr.Labels {
-		labels[k] = v
-	}
-	if count != 0 {
-		session.Token = token
-		session.ExpiredAt = expiredAt
-		session.Labels = labels
-		_, err = tx.NewUpdate().Model(session).
-			Column("token", "expired_at", "labels", "updated_at").
-			Where("builder_id = ?", bdr.ID).Exec(ctx)
-	} else {
-		session = &models.Session{
-			Builder:   *bdr,
-			BuilderID: bdr.ID,
-			Token:     token,
-			ExpiredAt: expiredAt,
-			Labels:    labels,
+func (c *Coor) Serve(ctx context.Context) error {
+	go c.serveRunner(ctx)
+	passiveDuration := time.Minute
+	ticker := time.NewTicker(passiveDuration)
+	slog.Info("Coor started")
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(ctx, passiveDuration)
+			err := c.passiveWork(ctx)
+			if err != nil {
+				slog.Warn("passive", "error", err)
+			}
+			cancel()
+		case j := <-c.queue:
+			err := c.handleQueue(ctx, j)
+			if err != nil {
+				slog.Warn("queue", "error", err)
+			}
 		}
-		_, err = tx.NewInsert().Model(session).Exec(ctx)
 	}
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		tx.Rollback()
-		return
-	}
-
-	bdr.LastSeen = bun.NullTime{time.Now()}
-	_, err = tx.NewUpdate().Model(bdr).WherePK().Column("last_seen").Exec(ctx)
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		tx.Rollback()
-		return
-	}
-
-	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"session": session})
 }
 
-func (s *Service) RefreshSession(c *gin.Context) {
-	token := c.GetHeader("X-RISCV-Builders-Token")
-	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.apiTimeout)
-	defer cancel()
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+func (c *Coor) handleQueue(ctx context.Context, j *models.GithubWorkflowJob) (err error) {
+	builders, err := c.findBuilder(ctx)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
+		return err
 	}
 
-	session := &models.Session{
-		Token:     token,
-		ExpiredAt: time.Now().Add(s.tokenDuration),
+	if len(builders) == 0 {
+		return nil
 	}
-	hit, err := tx.NewUpdate().Model(session).
-		Column("expired_at", "updated_at").
-		Where("token = ?", token).Exec(ctx)
-
-	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
-		tx.Rollback()
-		return
-	}
-
-	if rows, _ := hit.RowsAffected(); rows == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
-		tx.Rollback()
-		return
-	}
-
-	tx.Commit()
-	c.JSON(http.StatusOK, session)
+	c.bind(ctx, j, builders[0])
+	return nil
 }
 
-func (s *Service) SearchJob(c *gin.Context) {
-	token := c.GetHeader("X-RISCV-Builders-Token")
-	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.apiTimeout)
-	defer cancel()
-
-	session := &models.Session{}
-	err := s.db.NewSelect().Model(session).Where("token = ?", token).
-		Join("JOIN builders AS b ON b.id = session.builder_id").
-		Limit(1).Scan(ctx)
-
+func (c *Coor) passiveWork(ctx context.Context) error {
+	builders, err := c.findBuilder(ctx)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows in result set") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
-			return
-		}
-		c.AbortWithError(http.StatusInternalServerError, err)
-		return
+		return err
 	}
 
-	if session.ExpiredAt.Before(time.Now()) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
+	if len(builders) == 0 {
+		return nil
+	}
+
+	jobs, err := c.findJob(ctx)
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	l := min(len(builders), len(jobs))
+	wg := sync.WaitGroup{}
+	wg.Add(l)
+	for i := 0; i < l; i++ {
+		go c.bindWG(ctx, wg, jobs[i], builders[i])
+	}
+	wg.Wait()
+	return nil
+}
+
+func (c *Coor) findJob(ctx context.Context) ([]*models.GithubWorkflowJob, error) {
+	const maxJobs = 5
+	jl := make([]*models.GithubWorkflowJob, 0, maxJobs)
+	err := c.db.NewSelect().Model((*models.GithubWorkflowJob)(nil)).
+		Where("status = ?", models.WorkflowJobQueued).
+		Limit(maxJobs).Scan(ctx, &jl)
+
+	return jl, err
+}
+
+func (c *Coor) findBuilder(ctx context.Context) ([]*models.Builder, error) {
+	const maxBuilder = 5
+	bl := make([]*models.Builder, 0, maxBuilder)
+	err := c.db.NewSelect().Model((*models.Builder)(nil)).
+		Where("status = ?", models.BuilderIdle).
+		Limit(maxBuilder).Scan(ctx, &bl)
+	return bl, err
+}
+
+func (c *Coor) bindWG(ctx context.Context, wg sync.WaitGroup, job *models.GithubWorkflowJob, bdr *models.Builder) {
+	defer wg.Done()
+	c.bind(ctx, job, bdr)
+
+}
+
+func (c *Coor) bind(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) {
+	slog.Info("run job", "job", job.ID, "owner", job.Owner, "repo", job.RepoName, "builder", bdr.Name)
+	err := c.prepareBuilder(ctx, bdr)
+	if err != nil {
+		slog.Error("prepare failed", "err", err)
 		return
 	}
-	c.JSON(200, gin.H{"job": <-s.jobCh})
+	err = c.runJob(ctx, job, bdr)
+	if err != nil {
+		slog.Error("run job failed", "err", err)
+		return
+	}
 }

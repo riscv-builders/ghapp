@@ -15,12 +15,12 @@ import (
 func New(DBURL, DBType string) (db *bun.DB, err error) {
 	switch DBType {
 	default:
-		sqlitedb, err := sql.Open(sqliteshim.ShimName, "file::memory:?cache=shared")
+		sqlitedb, err := sql.Open(sqliteshim.ShimName, "file:sqlite.db?cache=shared")
 		if err != nil {
 			slog.Error(err.Error())
 			return nil, err
 		}
-		sqlitedb.SetMaxOpenConns(1)
+		sqlitedb.SetMaxOpenConns(3)
 		db = bun.NewDB(sqlitedb, sqlitedialect.New())
 	case "mysql":
 		sqldb, err := sql.Open("mysql", DBURL)

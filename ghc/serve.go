@@ -2,8 +2,9 @@ package ghc
 
 import (
 	"log/slog"
-	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func (c *GithubService) initAPI() (err error) {
@@ -27,21 +28,15 @@ func (c *GithubService) initAPI() (err error) {
 	}
 	slog.Info("api", "listen", c.cfg.ListenAddr)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/gh/webhook", c.GithubWebhook)
+	c.rt = gin.Default()
 
-	c.srv = &http.Server{
-		WriteTimeout:      c.ghtimeout,
-		IdleTimeout:       30 * time.Second,
-		ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout:       1 * time.Second,
-		Handler:           mux,
-		Addr:              c.cfg.ListenAddr,
-	}
+	c.rt.POST("/github/events", func(gc *gin.Context) {
+		c.GithubEvents(gc.Writer, gc.Request)
+	})
 
 	return err
 }
 
 func (c *GithubService) Serve() error {
-	return c.srv.ListenAndServe()
+	return c.rt.Run(c.cfg.ListenAddr)
 }

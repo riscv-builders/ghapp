@@ -8,8 +8,8 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type GithubWorkflowJobEvent struct {
-	ID      int64                   `bun:"id,autoincrement" json:"id"`
+type GithubWorkflowJob struct {
+	ID      int64                   `bun:"id,pk" json:"id"`
 	RunID   int64                   `bun:",notnull" json:"run_id"`
 	HeadSHA string                  `bun:",notnull" json:"head_sha"`
 	Name    string                  `json:"name"`
@@ -37,9 +37,28 @@ type GithubWorkflowJobStatus string
 
 const (
 	WorkflowJobQueued     GithubWorkflowJobStatus = "queued"
+	WorkflowJobScheduled                          = "scheduled"
 	WorkflowJobInProgress                         = "in_progress"
 	WorkflowJobCompleted                          = "completed"
 )
+
+func (g *GithubWorkflowJob) IsStatusChangable(ns GithubWorkflowJobStatus) bool {
+	if g.Status == ns {
+		return false // same, ignore
+	}
+
+	switch g.Status {
+	case "":
+		return true
+	case WorkflowJobQueued:
+		return ns == WorkflowJobScheduled || ns == WorkflowJobInProgress || ns == WorkflowJobCompleted
+	case WorkflowJobScheduled:
+		return ns == WorkflowJobInProgress || ns == WorkflowJobCompleted
+	case WorkflowJobInProgress:
+		return ns == WorkflowJobCompleted
+	}
+	return false
+}
 
 func HasRVBLabels(sl []string) bool {
 	for _, s := range sl {
@@ -57,12 +76,13 @@ func GetRVBLabels(sl []string) []string {
 	return nil
 }
 
-var _ bun.AfterCreateTableHook = (*GithubWorkflowJobEvent)(nil)
+var _ bun.AfterCreateTableHook = (*GithubWorkflowJob)(nil)
 
-func (*GithubWorkflowJobEvent) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
+func (*GithubWorkflowJob) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
 	_, err := query.DB().NewCreateIndex().
-		Model((*GithubWorkflowJobEvent)(nil)).
-		Index("run_repo_idx").
+		Model((*GithubWorkflowJob)(nil)).
+		Index("gh_job_run_repo_idx").
+		Column("id").
 		Column("run_id").
 		Column("repo_id").
 		Unique().Exec(ctx)
@@ -71,25 +91,19 @@ func (*GithubWorkflowJobEvent) AfterCreateTable(ctx context.Context, query *bun.
 	}
 
 	_, err = query.DB().NewCreateIndex().
-		Model((*GithubWorkflowJobEvent)(nil)).
-		Index("runner_id_status_idx").
-		Column("runner_id").
-		Column("status").Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	_, err = query.DB().NewCreateIndex().
-		Model((*GithubWorkflowJobEvent)(nil)).
-		Index("status_idx").
+		Model((*GithubWorkflowJob)(nil)).
+		Index("gh_job_status_idx").
 		Column("status").Exec(ctx)
 	return err
 }
 
-func (g *GithubWorkflowJobEvent) BeforeAppendModel(ctx context.Context, query bun.Query) error {
+var _ bun.BeforeAppendModelHook = (*GithubWorkflowJob)(nil)
+
+func (g *GithubWorkflowJob) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 	switch query.(type) {
 	case *bun.InsertQuery:
 		g.CreatedAt = time.Now()
+		g.UpdatedAt = time.Now()
 	case *bun.UpdateQuery:
 		g.UpdatedAt = time.Now()
 	}

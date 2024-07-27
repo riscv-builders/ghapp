@@ -2,6 +2,7 @@ package ghc
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,8 @@ import (
 	"github.com/riscv-builders/service/models"
 )
 
-func (c *GithubService) GithubWebhook(w http.ResponseWriter, r *http.Request) {
+func (c *GithubService) GithubEvents(w http.ResponseWriter, r *http.Request) {
+	slog.Debug("webhook", "method", r.Method, "url", r.URL)
 
 	payload, err := github.ValidatePayload(r, []byte(c.cfg.GHSecretKey))
 	if err != nil {
@@ -81,6 +83,13 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 		return fmt.Errorf("invalid repo")
 	}
 
+	if !models.HasRVBLabels(wf.Labels) {
+		slog.Warn("skip event", "run_id", wf.GetRunID(),
+			"labels", wf.Labels,
+			"reason", "labels not supported")
+		return
+	}
+
 	action := models.GithubWorkflowJobStatus(event.GetAction())
 	switch action {
 	case models.WorkflowJobQueued,
@@ -89,13 +98,6 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 	default:
 		slog.Warn("skip event", "run_id", wf.GetRunID(),
 			"action", action, "reason", "action not supported")
-		return
-	}
-
-	if !models.HasRVBLabels(wf.Labels) {
-		slog.Warn("skip event", "run_id", wf.GetRunID(),
-			"labels", wf.Labels,
-			"reason", "labels not supported")
 		return
 	}
 
@@ -115,15 +117,13 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 	slog.Info("WorkflowJob", "action", action)
 	slog.Debug(fmt.Sprintf("%v", event))
 
-	run_id := wf.GetRunID()
-	repo_id := repo.GetID()
+	id := wf.GetID()
+	repoID := repo.GetID()
+	runID := wf.GetRunID()
 
-	count, err := c.db.NewSelect().Model((*models.GithubWorkflowJobEvent)(nil)).
-		Where("run_id = ? AND repo_id = ?", run_id, repo_id).Count(ctx)
-	if err != nil {
-		return
-	}
-	mod := &models.GithubWorkflowJobEvent{
+	oldJob := &models.GithubWorkflowJob{}
+	mod := &models.GithubWorkflowJob{
+		ID:             wf.GetID(),
 		RunID:          wf.GetRunID(),
 		Name:           wf.GetName(),
 		Owner:          repo.Owner.GetLogin(),
@@ -137,12 +137,24 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 		InstallationID: installID,
 		WorkflowName:   wf.GetWorkflowName()}
 
-	if count > 0 {
-		slog.Info("workflow", "run_id", run_id, "status", mod.Status)
-		_, err = c.db.NewUpdate().Model(mod).Column("status", "runner_id").
-			Where("run_id = ? AND repo_id = ?", run_id, repo_id).Exec(ctx)
-		return
+	err = c.db.NewSelect().Model((*models.GithubWorkflowJob)(nil)).
+		Where("id = ? AND run_id = ? AND repo_id = ?", id, runID, repoID).Scan(ctx, oldJob)
+
+	switch err {
+	case sql.ErrNoRows:
+		if mod.Status == models.WorkflowJobQueued {
+			_, ierr := c.db.NewInsert().Model(mod).Ignore().Exec(ctx)
+			return ierr
+		} else {
+			slog.Warn("new wf job is not queued", "id", mod.ID)
+			return nil
+		}
+	case nil:
+		slog.Info("workflow", "id", id, "run_id", runID, "old_status", oldJob.Status, "new_status", mod.Status)
+		if oldJob.IsStatusChangable(mod.Status) {
+			_, err = c.db.NewUpdate().Model(mod).Column("status").
+				Where("id = ? AND run_id = ? AND repo_id = ?", id, runID, repoID).Exec(ctx)
+		}
 	}
-	_, err = c.db.NewInsert().Model(mod).Ignore().Exec(ctx)
-	return
+	return err
 }

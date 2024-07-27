@@ -1,9 +1,9 @@
 package ghc
 
 import (
-	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/riscv-builders/service/db"
 	"github.com/uptrace/bun"
 )
@@ -23,7 +23,7 @@ type Config struct {
 type GithubService struct {
 	cfg *Config
 	db  *bun.DB
-	srv *http.Server
+	rt  *gin.Engine
 
 	ghtimeout time.Duration
 }
@@ -31,10 +31,6 @@ type GithubService struct {
 func New(cfg *Config) (ins *GithubService, err error) {
 	ins = &GithubService{cfg: cfg}
 	ins.db, err = db.New(cfg.DBURL, cfg.DBType)
-	if err != nil {
-		return
-	}
-	err = ins.Migrate()
 	if err != nil {
 		return
 	}
