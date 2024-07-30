@@ -110,10 +110,12 @@ github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65E
 github.com/ugorji/go/codec v1.2.12/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
 github.com/uptrace/bun v1.2.1 h1:2ENAcfeCfaY5+2e7z5pXrzFKy3vS8VXvkCag6N2Yzfk=
 github.com/uptrace/bun v1.2.1/go.mod h1:cNg+pWBUMmJ8rHnETgf65CEvn3aIKErrwOD6IA8e+Ec=
-github.com/uptrace/bun/dialect/mysqldialect v1.2.1 h1:tapGyK0VMbpwtmfAZFG0s2GrjX77EduweWEdID2Yigk=
-github.com/uptrace/bun/dialect/mysqldialect v1.2.1/go.mod h1:H4ekLaXSXo4TKOVfT9J/yhOvootl1vsBnyRyyUlRVoA=
+github.com/uptrace/bun/dialect/pgdialect v1.2.1 h1:ceP99r03u+s8ylaDE/RzgcajwGiC76Jz3nS2ZgyPQ4M=
+github.com/uptrace/bun/dialect/pgdialect v1.2.1/go.mod h1:mv6B12cisvSc6bwKm9q9wcrr26awkZK8QXM+nso9n2U=
 github.com/uptrace/bun/dialect/sqlitedialect v1.2.1 h1:IprvkIKUjEjvt4VKpcmLpbMIucjrsmUPJOSlg19+a0Q=
 github.com/uptrace/bun/dialect/sqlitedialect v1.2.1/go.mod h1:mMQf4NUpgY8bnOanxGmxNiHCdALOggS4cZ3v63a9D/o=
+github.com/uptrace/bun/driver/pgdriver v1.2.1 h1:Cp6c1tKzbTIyL8o0cGT6cOhTsmQZdsUNhgcV51dsmLU=
+github.com/uptrace/bun/driver/pgdriver v1.2.1/go.mod h1:jEd3WGx74hWLat3/IkesOoWNjrFNUDADK3nkyOFOOJM=
 github.com/uptrace/bun/driver/sqliteshim v1.2.1 h1:xBsGsoMIskK7+dhtWIQ4CrO+UTWzC96G3vGzNDkr5aQ=
 github.com/uptrace/bun/driver/sqliteshim v1.2.1/go.mod h1:oJtOPSCDdDHgNw/0jwIGr+V0yUFxQ8NrBwJ3xbp4XOU=
 github.com/uptrace/bun/extra/bundebug v1.2.1 h1:85MYpX3QESYI02YerKxUi1CD9mHuLrc2BXs1eOCtQus=
@@ -157,6 +159,8 @@ gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f/go.mod h1:Co6ibVJAznAaIkqp8
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+mellium.im/sasl v0.3.1 h1:wE0LW6g7U83vhvxjC1IY8DnXM+EU095yeo8XClvCdfo=
+mellium.im/sasl v0.3.1/go.mod h1:xm59PUYpZHhgQ9ZqoJ5QaCqzWMi8IeS49dhp6plPCzw=
 modernc.org/cc/v4 v4.19.5 h1:QlsZyQ1zf78DGeqnQ9ILi9hXyMdoC5e1qoGNUyBjHQw=
 modernc.org/cc/v4 v4.19.5/go.mod h1:HM7VJTZbUCR3rV8EYBi9wxnJ0ZBRiGE5OeGXNA0IsLQ=
 modernc.org/ccgo/v4 v4.13.1 h1:qBttaSxEHNze36VBivw1/vkHuyjMDN3RY5wQX+p1Oxg=
