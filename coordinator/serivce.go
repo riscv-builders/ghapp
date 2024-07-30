@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/pem"
+	"fmt"
 	"log/slog"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/riscv-builders/service/db"
@@ -22,10 +23,6 @@ type Coor struct {
 	privateKey  *rsa.PrivateKey
 	jwtExpireAt time.Time
 	jwt         string
-
-	queue    chan *models.GithubWorkflowJob
-	runner   chan *models.Runner
-	runnerCm sync.Map //key: runner id , val: cancel function
 }
 
 func loadPrivateFile(p string) (*rsa.PrivateKey, error) {
@@ -40,10 +37,7 @@ func loadPrivateFile(p string) (*rsa.PrivateKey, error) {
 
 func New(cfg *Config) (*Coor, error) {
 	s := &Coor{
-		cfg:      cfg,
-		queue:    make(chan *models.GithubWorkflowJob),
-		runner:   make(chan *models.Runner),
-		runnerCm: sync.Map{},
+		cfg: cfg,
 	}
 
 	var err error
@@ -60,103 +54,101 @@ func New(cfg *Config) (*Coor, error) {
 }
 
 func (c *Coor) Serve(ctx context.Context) error {
-	go c.serveRunner(ctx)
-	passiveDuration := time.Minute
-	ticker := time.NewTicker(passiveDuration)
-	slog.Info("Coor started")
+	go c.serveAvailableJob(ctx)
+	slog.Info("Coor job started")
+	return c.serveRunner(ctx)
+}
+
+func (c *Coor) serveAvailableJob(ctx context.Context) {
+	const maxJob = 10
 	for {
-		select {
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(ctx, passiveDuration)
-			err := c.passiveWork(ctx)
-			if err != nil {
-				slog.Warn("passive", "error", err)
-			}
-			cancel()
-		case j := <-c.queue:
-			err := c.handleQueue(ctx, j)
-			if err != nil {
-				slog.Warn("queue", "error", err)
-			}
+		start := time.Now()
+		count, err := c.findAvailableJob(ctx)
+		if err != nil {
+			slog.Warn("find queued job failed", "err", err)
+			continue
+		}
+		since := time.Since(start)
+		if count < maxJob || since < 10*time.Second {
+			time.Sleep(10*time.Second - since)
 		}
 	}
 }
 
-func (c *Coor) handleQueue(ctx context.Context, j *models.GithubWorkflowJob) (err error) {
-	builders, err := c.findBuilder(ctx)
-	if err != nil {
-		return err
+func (c *Coor) findAvailableJob(ctx context.Context) (int, error) {
+	passiveDuration := 30 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, passiveDuration)
+	defer cancel()
+
+	count, err := c.db.NewSelect().
+		Model((*models.GithubWorkflowJob)(nil)).
+		Where("status = ?", models.WorkflowJobQueued).Count(ctx)
+
+	if err != nil || count == 0 {
+		return count, err
 	}
 
-	if len(builders) == 0 {
-		return nil
+	jl := []*models.GithubWorkflowJob{}
+	err = c.db.NewSelect().Model(&jl).
+		Where("status = ?", models.WorkflowJobQueued).Limit(10).
+		Order("id ASC").Scan(ctx, &jl)
+
+	if err != nil {
+		return count, err
 	}
-	c.bind(ctx, j, builders[0])
-	return nil
+	for _, j := range jl {
+		c.newRunner(ctx, j)
+	}
+	return count, err
 }
 
-func (c *Coor) passiveWork(ctx context.Context) error {
-	builders, err := c.findBuilder(ctx)
-	if err != nil {
-		return err
+func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
+	if job.Status != models.WorkflowJobQueued {
+		slog.Warn("job not queued", "id", job.ID, "status", job.Status)
+		return
 	}
 
-	if len(builders) == 0 {
-		return nil
+	token, expireAt, err := c.getActionRegistrationToken(ctx, job.InstallationID, job.Owner, job.RepoName)
+	if err != nil {
+		slog.Warn("job get token failed", "id", job.ID, "name", job.Name)
+		return
 	}
 
-	jobs, err := c.findJob(ctx)
-	if err != nil {
-		return err
-	}
-	if len(jobs) == 0 {
-		return nil
-	}
-	l := min(len(builders), len(jobs))
-	wg := sync.WaitGroup{}
-	wg.Add(l)
-	for i := 0; i < l; i++ {
-		go c.bindWG(ctx, wg, jobs[i], builders[i])
-	}
-	wg.Wait()
-	return nil
+	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
+		job.Status = models.WorkflowJobScheduled
+		_, err = tx.NewUpdate().Model(job).WherePK().Column("status").Exec(ctx)
+		if err != nil {
+			return
+		}
+
+		runner := &models.Runner{
+			Job:      job,
+			JobID:    job.ID,
+			RegToken: token,
+			// Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
+			// Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
+			SystemLabels:   []string{"riscv64", "riscv", "linux"},
+			URL:            fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
+			Ephemeral:      true,
+			Status:         models.RunnerScheduled,
+			TokenExpiredAt: expireAt,
+			QueuedAt:       time.Now(),
+			DeadLine:       time.Now().Add(35 * 24 * time.Hour),
+		}
+		_, err = tx.NewInsert().Model(runner).Ignore().Exec(ctx)
+		return
+	})
+	return
 }
 
-func (c *Coor) findJob(ctx context.Context) ([]*models.GithubWorkflowJob, error) {
-	const maxJobs = 5
-	jl := make([]*models.GithubWorkflowJob, 0, maxJobs)
-	err := c.db.NewSelect().Model((*models.GithubWorkflowJob)(nil)).
-		Where("status = ?", models.WorkflowJobQueued).
-		Limit(maxJobs).Scan(ctx, &jl)
-
-	return jl, err
-}
-
-func (c *Coor) findBuilder(ctx context.Context) ([]*models.Builder, error) {
-	const maxBuilder = 5
-	bl := make([]*models.Builder, 0, maxBuilder)
-	err := c.db.NewSelect().Model((*models.Builder)(nil)).
+func (c *Coor) findBuilder(ctx context.Context, query *bun.Query) (*models.Builder, error) {
+	// TODO match labels in the future
+	bdr := &models.Builder{}
+	err := c.db.NewSelect().Model(bdr).
 		Where("status = ?", models.BuilderIdle).
-		Limit(maxBuilder).Scan(ctx, &bl)
-	return bl, err
-}
-
-func (c *Coor) bindWG(ctx context.Context, wg sync.WaitGroup, job *models.GithubWorkflowJob, bdr *models.Builder) {
-	defer wg.Done()
-	c.bind(ctx, job, bdr)
-
-}
-
-func (c *Coor) bind(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) {
-	slog.Info("run job", "job", job.ID, "owner", job.Owner, "repo", job.RepoName, "builder", bdr.Name)
-	err := c.prepareBuilder(ctx, bdr)
-	if err != nil {
-		slog.Error("prepare failed", "err", err)
-		return
+		Limit(1).Scan(ctx, bdr)
+	if err == sql.ErrNoRows {
+		return nil, nil
 	}
-	err = c.runJob(ctx, job, bdr)
-	if err != nil {
-		slog.Error("run job failed", "err", err)
-		return
-	}
+	return bdr, err
 }

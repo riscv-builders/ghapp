@@ -15,8 +15,9 @@ type Builder struct {
 	Meta    map[string]string `bun:",type:text"`
 	Labels  []string          `bun:",type:text"`
 
-	Type   BuilderType
-	Status BuilderStatus
+	Type        BuilderType
+	Status      BuilderStatus
+	FailedCount int
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
@@ -33,6 +34,7 @@ type BuilderStatus string
 
 const (
 	BuilderIdle        BuilderStatus = "idle"
+	BuilderLocked                    = "locked"
 	BuilderWorking                   = "working"
 	BuilderDied                      = "died"
 	BuilderQuarantined               = "quarantined"

@@ -13,6 +13,8 @@ import (
 	"github.com/riscv-builders/service/models"
 )
 
+var zeroTime = time.Time{}
+
 func (c *Coor) getJWT() (string, error) {
 
 	if c.jwt != "" && c.jwtExpireAt.After(time.Now()) {
@@ -96,9 +98,9 @@ func (c *Coor) createActionRegistrationToken(ctx context.Context, installID int6
 	return token, err
 }
 
-func (c *Coor) getActionRegistrationToken(ctx context.Context, installID int64, owner string, repo string) (string, error) {
+func (c *Coor) getActionRegistrationToken(ctx context.Context, installID int64, owner string, repo string) (string, time.Time, error) {
 	if owner == "" || repo == "" || installID == 0 {
-		return "", fmt.Errorf("invalid action registration request")
+		return "", zeroTime, fmt.Errorf("invalid action registration request")
 	}
 	key := fmt.Sprintf("%d||%s||%s", installID, owner, repo)
 
@@ -109,32 +111,32 @@ func (c *Coor) getActionRegistrationToken(ctx context.Context, installID int64, 
 	switch err {
 	case nil:
 		if token.ExpiredAt.After(time.Now()) {
-			return token.Value, nil
+			return token.Value, token.ExpiredAt, nil
 		}
 		at, err := c.createActionRegistrationToken(ctx, installID, owner, repo)
 		if err != nil {
-			return "", err
+			return "", zeroTime, err
 		}
 		token.ExpiredAt = at.ExpiresAt.Time
 		token.Value = at.GetToken()
 		_, err = c.db.NewUpdate().Model(token).Column("value", "expired_at").WherePK().Exec(ctx)
 		if err != nil {
-			return "", err
+			return "", zeroTime, err
 		}
-		return token.Value, nil
+		return token.Value, token.ExpiredAt, nil
 
 	case sql.ErrNoRows:
 		at, err := c.createActionRegistrationToken(ctx, installID, owner, repo)
 		if err != nil {
-			return "", err
+			return "", zeroTime, err
 		}
 		token.ExpiredAt = at.GetExpiresAt().Time
 		token.Value = at.GetToken()
 		_, err = c.db.NewInsert().Model(token).Exec(ctx)
 		if err != nil {
-			return "", err
+			return "", zeroTime, err
 		}
-		return token.Value, nil
+		return token.Value, token.ExpiredAt, nil
 	}
-	return "", err
+	return "", zeroTime, err
 }

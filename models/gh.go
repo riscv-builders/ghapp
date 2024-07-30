@@ -40,6 +40,8 @@ const (
 	WorkflowJobScheduled                          = "scheduled"
 	WorkflowJobInProgress                         = "in_progress"
 	WorkflowJobCompleted                          = "completed"
+	WorkflowJobTimeout                            = "timeout"
+	WorkflowJobFailed                             = "failed"
 )
 
 func (g *GithubWorkflowJob) IsStatusChangable(ns GithubWorkflowJobStatus) bool {
@@ -108,4 +110,7 @@ func (g *GithubWorkflowJob) BeforeAppendModel(ctx context.Context, query bun.Que
 		g.UpdatedAt = time.Now()
 	}
 	return nil
+}
+
+type GithubInstall struct {
 }

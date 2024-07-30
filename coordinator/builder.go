@@ -10,46 +10,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func (c *Coor) prepareBuilder(ctx context.Context, bdr *models.Builder) error {
-	if bdr.Status != models.BuilderIdle {
-		return fmt.Errorf("builder:%d not idle", bdr.ID)
-	}
-	switch bdr.Type {
-	case models.BuilderSSH:
-		return c.prepareSSHBuilder(ctx, bdr)
-	}
-	return fmt.Errorf("unsupported builder:%s", bdr.Type)
-}
-
 func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
-	if bdr.Status != models.BuilderIdle {
-		return fmt.Errorf("builder:%d not idle", bdr.ID)
+	if bdr.Status != models.BuilderLocked {
+		return fmt.Errorf("builder:%d not setup", bdr.ID)
 	}
 	if job.Status != models.WorkflowJobQueued {
 		return fmt.Errorf("job:%d not queued", job.ID)
-	}
-	switch bdr.Type {
-	case models.BuilderSSH:
-		return c.runSSHBuilder(ctx, job, bdr)
-	}
-	return fmt.Errorf("unsupported builder:%s", bdr.Type)
-}
-
-func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
-	client, err := c.getSSHClient(ctx, bdr)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	token, err := c.getActionRegistrationToken(ctx, job.InstallationID, job.Owner, job.RepoName)
-	if err != nil {
-		return errors.Join(err, fmt.Errorf("registration token:%s", token))
 	}
 
 	tx, err := c.db.Begin()
@@ -63,27 +29,41 @@ func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob,
 	job.Status = models.WorkflowJobScheduled
 	tx.NewUpdate().Model(job).Column("status").WherePK().Exec(ctx)
 
-	runner := &models.Runner{
-		BuilderID:    bdr.ID,
-		Builder:      bdr,
-		Job:          job,
-		JobID:        job.ID,
-		RegToken:     token,
-		Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
-		Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
-		SystemLabels: []string{"riscv64", "riscv", "linux"},
-		URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
-		Ephemeral:    true,
-		Status:       models.RunnerScheduled,
-		ExpiredAt:    time.Now().Add(5 * 24 * time.Hour),
-	}
-	tx.NewInsert().Model(runner).Exec(ctx)
 	err = tx.Commit()
 	if err != nil {
 		return err
 	}
-	c.runner <- runner
-	return nil
+
+	switch bdr.Type {
+	case models.BuilderSSH:
+		return c.runSSHBuilder(ctx, job, bdr)
+	}
+	return fmt.Errorf("unsupported builder:%s", bdr.Type)
+}
+
+func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
+
+	token, _, err := c.getActionRegistrationToken(ctx, job.InstallationID, job.Owner, job.RepoName)
+	if err != nil {
+		return errors.Join(err, fmt.Errorf("registration token:%s", token))
+	}
+
+	runner := &models.Runner{
+		BuilderID:      bdr.ID,
+		Builder:        bdr,
+		Job:            job,
+		JobID:          job.ID,
+		RegToken:       token,
+		Name:           fmt.Sprintf("riscv-builder-%s", bdr.Name),
+		Labels:         append([]string{"riscv-builers"}, bdr.Labels...),
+		SystemLabels:   []string{"riscv64", "riscv", "linux"},
+		URL:            fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
+		Ephemeral:      true,
+		Status:         models.RunnerScheduled,
+		TokenExpiredAt: time.Now().Add(5 * 24 * time.Hour),
+	}
+	_, err = c.db.NewInsert().Model(runner).Exec(ctx)
+	return err
 }
 
 func (c *Coor) getSSHClient(ctx context.Context, bdr *models.Builder) (*ssh.Client, error) {

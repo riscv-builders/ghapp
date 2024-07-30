@@ -135,22 +135,23 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 		RunnerName:     wf.GetRunnerName(),
 		RunnerID:       wf.GetRunnerID(),
 		InstallationID: installID,
-		WorkflowName:   wf.GetWorkflowName()}
+		WorkflowName:   wf.GetWorkflowName(),
+	}
 
 	err = c.db.NewSelect().Model((*models.GithubWorkflowJob)(nil)).
 		Where("id = ? AND run_id = ? AND repo_id = ?", id, runID, repoID).Scan(ctx, oldJob)
 
 	switch err {
 	case sql.ErrNoRows:
-		if mod.Status == models.WorkflowJobQueued {
-			_, ierr := c.db.NewInsert().Model(mod).Ignore().Exec(ctx)
-			return ierr
-		} else {
+		if mod.Status != models.WorkflowJobQueued {
 			slog.Warn("new wf job is not queued", "id", mod.ID)
-			return nil
 		}
+		_, ierr := c.db.NewInsert().Model(mod).Ignore().Exec(ctx)
+		return ierr
 	case nil:
-		slog.Info("workflow", "id", id, "run_id", runID, "old_status", oldJob.Status, "new_status", mod.Status)
+		slog.Info("workflow", "id", id, "run_id", runID,
+			"old_status", oldJob.Status, "new_status", mod.Status,
+			"changed", oldJob.IsStatusChangable(mod.Status))
 		if oldJob.IsStatusChangable(mod.Status) {
 			_, err = c.db.NewUpdate().Model(mod).Column("status").
 				Where("id = ? AND run_id = ? AND repo_id = ?", id, runID, repoID).Exec(ctx)

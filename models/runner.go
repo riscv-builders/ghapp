@@ -10,11 +10,13 @@ import (
 type RunnerStatus string
 
 const (
-	RunnerScheduled  RunnerStatus = "scheduled"
-	RunnerInProgress              = "in_prgoress"
-	RunnerCompleted               = "completed"
-	RunnerTimeout                 = "timeout"
-	RunnerFailed                  = "failed"
+	RunnerScheduled    RunnerStatus = "scheduled"
+	RunnerFoundBuilder              = "found_builder"
+	RunnerBuilderReady              = "builder_ready"
+	RunnerInProgress                = "in_progress"
+	RunnerCompleted                 = "completed"
+	RunnerTimeout                   = "timeout"
+	RunnerFailed                    = "failed"
 )
 
 type Runner struct {
@@ -32,9 +34,11 @@ type Runner struct {
 	Ephemeral    bool
 	Status       RunnerStatus
 
-	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-	ExpiredAt time.Time `json:"expired_at"`
+	CreatedAt      time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+	QueuedAt       time.Time `bun:queued_at,nullzero,notnull,default:"current_timestamp"`
+	TokenExpiredAt time.Time `json:"token_expired_at"`
+	DeadLine       time.Time `bun:"deadline,nullzero,notnull" json:"deadline"`
 }
 
 var _ bun.AfterCreateTableHook = (*Runner)(nil)
@@ -47,6 +51,11 @@ func (*Runner) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery
 	if err != nil {
 		return err
 	}
+
+	_, err = query.DB().NewCreateIndex().
+		Model((*Runner)(nil)).
+		Index("runner_queued_at_idx").
+		Column("queued_at").Exec(ctx)
 	return err
 }
 
