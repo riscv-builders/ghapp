@@ -27,18 +27,16 @@ type Runner struct {
 	JobID     int64              `bun:"job_id" json:"job_id"`
 
 	Name         string
-	RegToken     string   `bun:",type:text"`
 	Labels       []string `bun:",type:text"`
 	SystemLabels []string `bun:",type:text"`
 	URL          string   `bun:",type:text"`
 	Ephemeral    bool
 	Status       RunnerStatus
 
-	CreatedAt      time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt      time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-	QueuedAt       time.Time `bun:queued_at,nullzero,notnull,default:"current_timestamp"`
-	TokenExpiredAt time.Time `json:"token_expired_at"`
-	DeadLine       time.Time `bun:"deadline,nullzero,notnull" json:"deadline"`
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+	QueuedAt  time.Time `bun:queued_at,nullzero,notnull,default:"current_timestamp"`
+	DeadLine  time.Time `bun:"deadline,nullzero,notnull" json:"deadline"`
 }
 
 var _ bun.AfterCreateTableHook = (*Runner)(nil)

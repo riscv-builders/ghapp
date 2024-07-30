@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/models"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -43,26 +42,19 @@ func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *m
 
 func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
 
-	token, _, err := c.getActionRegistrationToken(ctx, job.InstallationID, job.Owner, job.RepoName)
-	if err != nil {
-		return errors.Join(err, fmt.Errorf("registration token:%s", token))
-	}
-
 	runner := &models.Runner{
-		BuilderID:      bdr.ID,
-		Builder:        bdr,
-		Job:            job,
-		JobID:          job.ID,
-		RegToken:       token,
-		Name:           fmt.Sprintf("riscv-builder-%s", bdr.Name),
-		Labels:         append([]string{"riscv-builers"}, bdr.Labels...),
-		SystemLabels:   []string{"riscv64", "riscv", "linux"},
-		URL:            fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
-		Ephemeral:      true,
-		Status:         models.RunnerScheduled,
-		TokenExpiredAt: time.Now().Add(5 * 24 * time.Hour),
+		BuilderID:    bdr.ID,
+		Builder:      bdr,
+		Job:          job,
+		JobID:        job.ID,
+		Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
+		Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
+		SystemLabels: []string{"riscv64", "riscv", "linux"},
+		URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
+		Ephemeral:    true,
+		Status:       models.RunnerScheduled,
 	}
-	_, err = c.db.NewInsert().Model(runner).Exec(ctx)
+	_, err := c.db.NewInsert().Model(runner).Exec(ctx)
 	return err
 }
 

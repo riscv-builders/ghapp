@@ -1,4 +1,4 @@
-module github.com/riscv-builders/service
+module github.com/riscv-builders/ghapp
 
 go 1.22.3
 

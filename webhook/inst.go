@@ -1,10 +1,10 @@
-package ghc
+package webhook
 
 import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/riscv-builders/service/db"
+	"github.com/riscv-builders/ghapp/db"
 	"github.com/uptrace/bun"
 )
 

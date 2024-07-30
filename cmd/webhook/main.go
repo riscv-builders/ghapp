@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/JeremyLoy/config"
-	"github.com/riscv-builders/service/ghc"
+	"github.com/riscv-builders/ghapp/webhook"
 )
 
 func main() {
@@ -18,9 +18,9 @@ func main() {
 	lv.UnmarshalText([]byte(lvs))
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
-	cfg := &ghc.Config{}
+	cfg := &webhook.Config{}
 	config.From("ghc.env").FromEnv().To(cfg)
-	ctrl, err := ghc.New(cfg)
+	ctrl, err := webhook.New(cfg)
 	if err != nil {
 		slog.Error("github-service", "err", err.Error())
 		os.Exit(1)

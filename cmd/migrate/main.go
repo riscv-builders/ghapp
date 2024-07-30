@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/JeremyLoy/config"
-	"github.com/riscv-builders/service/db"
-	"github.com/riscv-builders/service/migrations"
+	"github.com/riscv-builders/ghapp/db"
+	"github.com/riscv-builders/ghapp/migrations"
 	"github.com/uptrace/bun/migrate"
 
 	"github.com/urfave/cli/v2"

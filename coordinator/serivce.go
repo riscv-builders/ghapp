@@ -11,8 +11,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/riscv-builders/service/db"
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/db"
+	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
 
@@ -108,12 +108,6 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 		return
 	}
 
-	token, expireAt, err := c.getActionRegistrationToken(ctx, job.InstallationID, job.Owner, job.RepoName)
-	if err != nil {
-		slog.Warn("job get token failed", "id", job.ID, "name", job.Name)
-		return
-	}
-
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
 		job.Status = models.WorkflowJobScheduled
 		_, err = tx.NewUpdate().Model(job).WherePK().Column("status").Exec(ctx)
@@ -122,18 +116,16 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 		}
 
 		runner := &models.Runner{
-			Job:      job,
-			JobID:    job.ID,
-			RegToken: token,
+			Job:   job,
+			JobID: job.ID,
 			// Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
 			// Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
-			SystemLabels:   []string{"riscv64", "riscv", "linux"},
-			URL:            fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
-			Ephemeral:      true,
-			Status:         models.RunnerScheduled,
-			TokenExpiredAt: expireAt,
-			QueuedAt:       time.Now(),
-			DeadLine:       time.Now().Add(35 * 24 * time.Hour),
+			SystemLabels: []string{"riscv64", "riscv", "linux"},
+			URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
+			Ephemeral:    true,
+			Status:       models.RunnerScheduled,
+			QueuedAt:     time.Now(),
+			DeadLine:     time.Now().Add(35 * 24 * time.Hour),
 		}
 		_, err = tx.NewInsert().Model(runner).Ignore().Exec(ctx)
 		return

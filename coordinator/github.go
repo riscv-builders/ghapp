@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v62/github"
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/models"
 )
 
 var zeroTime = time.Time{}

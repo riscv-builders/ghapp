@@ -1,4 +1,4 @@
-package ghc
+package webhook
 
 import (
 	"log/slog"

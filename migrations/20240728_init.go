@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
 

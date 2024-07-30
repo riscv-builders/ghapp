@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/JeremyLoy/config"
-	"github.com/riscv-builders/service/coordinator"
+	"github.com/riscv-builders/ghapp/coordinator"
 )
 
 func main() {

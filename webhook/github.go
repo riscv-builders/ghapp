@@ -1,4 +1,4 @@
-package ghc
+package webhook
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/google/go-github/v62/github"
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/models"
 )
 
 func (c *GithubService) GithubEvents(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +86,8 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 	if !models.HasRVBLabels(wf.Labels) {
 		slog.Warn("skip event", "run_id", wf.GetRunID(),
 			"labels", wf.Labels,
+			"owner", repo.Owner.GetLogin(),
+			"repo", repo.GetName(),
 			"reason", "labels not supported")
 		return
 	}

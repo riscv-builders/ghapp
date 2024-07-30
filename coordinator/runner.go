@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/riscv-builders/service/models"
+	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
 
@@ -198,23 +198,10 @@ func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
 		// we can change by config JOB_EXEC_TIME_LIMIT
 		ctx, cancel := context.WithTimeout(context.Background(), c.cfg.JobExecTimeLimit)
 		defer cancel()
-
-		if r.TokenExpiredAt.Before(time.Now()) {
-			r.RegToken, r.TokenExpiredAt, err = c.getActionRegistrationToken(ctx,
-				r.Job.InstallationID,
-				r.Job.Owner, r.Job.RepoName)
-			if err != nil {
-				slog.Error("refresh token failed", "runner_id", r.ID)
-				r.Status = models.RunnerFailed
-				c.db.NewUpdate().Model(r).WherePK().
-					Column("status").Exec(ctx)
-				return
-			}
-		}
 		// make sure we don't get call again
 		r.Status = models.RunnerInProgress
 		_, err = c.db.NewUpdate().Model(r).WherePK().
-			Column("status", "reg_token", "token_expired_at").Exec(ctx)
+			Column("status").Exec(ctx)
 		if err != nil {
 			return
 		}
@@ -290,8 +277,15 @@ func (c *Coor) releaseBuilder(ctx context.Context, r *models.Runner) {
 
 func (c *Coor) doRunner(ctx context.Context, r *models.Runner) (err error) {
 
-	if r.Builder == nil {
+	if r.Builder == nil || r.BuilderID == 0 {
 		return fmt.Errorf("invalid builder for runner", "builder", r.BuilderID, "runner", r.ID)
+	}
+
+	token, _, err := c.getActionRegistrationToken(ctx,
+		r.Job.InstallationID,
+		r.Job.Owner, r.Job.RepoName)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(c.cfg.JobExecTimeLimit))
@@ -299,7 +293,7 @@ func (c *Coor) doRunner(ctx context.Context, r *models.Runner) (err error) {
 
 	cmd := []string{"github-act-runner", "configure",
 		"--url", r.URL,
-		"--token", r.RegToken,
+		"--token", token,
 		"--name", r.Name,
 		"--no-default-labels",
 		"--system-labels", strings.Join(r.SystemLabels, ","),
