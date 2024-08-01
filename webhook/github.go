@@ -155,7 +155,7 @@ func (c *GithubService) handleWorkflowJobEvent(event *github.WorkflowJobEvent) (
 			"old_status", oldJob.Status, "new_status", mod.Status,
 			"changed", oldJob.IsStatusChangable(mod.Status))
 		if oldJob.IsStatusChangable(mod.Status) {
-			_, err = c.db.NewUpdate().Model(mod).Column("status").
+			_, err = c.db.NewUpdate().Model(mod).Column("status", "updated_at").
 				Where("id = ? AND run_id = ? AND repo_id = ?", id, runID, repoID).Exec(ctx)
 		}
 	}

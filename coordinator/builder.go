@@ -2,12 +2,26 @@ package coordinator
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
 	"github.com/riscv-builders/ghapp/models"
+	"github.com/uptrace/bun"
 	"golang.org/x/crypto/ssh"
 )
+
+func (c *Coor) findBuilder(ctx context.Context, query *bun.Query) (*models.Builder, error) {
+	// TODO match labels in the future
+	bdr := &models.Builder{}
+	err := c.db.NewSelect().Model(bdr).
+		Where("status = ?", models.BuilderIdle).
+		Limit(1).Scan(ctx, bdr)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return bdr, err
+}
 
 func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
 	if bdr.Status != models.BuilderLocked {
@@ -23,10 +37,10 @@ func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *m
 	}
 
 	bdr.Status = models.BuilderWorking
-	tx.NewUpdate().Model(bdr).Column("status").WherePK().Exec(ctx)
+	tx.NewUpdate().Model(bdr).Column("status", "updated_at").WherePK().Exec(ctx)
 
 	job.Status = models.WorkflowJobScheduled
-	tx.NewUpdate().Model(job).Column("status").WherePK().Exec(ctx)
+	tx.NewUpdate().Model(job).Column("status", "updated_at").WherePK().Exec(ctx)
 
 	err = tx.Commit()
 	if err != nil {
@@ -96,10 +110,10 @@ func (c *Coor) prepareSSHBuilder(ctx context.Context, bdr *models.Builder) error
 	out, err := session.Output("github-act-runner --version")
 	if err != nil {
 		bdr.Status = models.BuilderQuarantined
-		c.db.NewUpdate().Model(bdr).Column("status").WherePK().Exec(ctx)
+		c.db.NewUpdate().Model(bdr).Column("status", "updated_at").WherePK().Exec(ctx)
 		return errors.Join(err, errors.New(string(out)))
 	}
 	bdr.Meta["runner-version"] = string(out)
-	_, err = c.db.NewUpdate().Model(bdr).Column("meta").WherePK().Exec(ctx)
+	_, err = c.db.NewUpdate().Model(bdr).Column("meta", "updated_at").WherePK().Exec(ctx)
 	return err
 }

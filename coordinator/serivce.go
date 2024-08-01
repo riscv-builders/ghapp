@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
-	"database/sql"
 	"encoding/pem"
 	"fmt"
 	"log/slog"
@@ -110,7 +109,7 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
 		job.Status = models.WorkflowJobScheduled
-		_, err = tx.NewUpdate().Model(job).WherePK().Column("status").Exec(ctx)
+		_, err = tx.NewUpdate().Model(job).WherePK().Column("status", "updated_at").Exec(ctx)
 		if err != nil {
 			return
 		}
@@ -131,16 +130,4 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 		return
 	})
 	return
-}
-
-func (c *Coor) findBuilder(ctx context.Context, query *bun.Query) (*models.Builder, error) {
-	// TODO match labels in the future
-	bdr := &models.Builder{}
-	err := c.db.NewSelect().Model(bdr).
-		Where("status = ?", models.BuilderIdle).
-		Limit(1).Scan(ctx, bdr)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return bdr, err
 }

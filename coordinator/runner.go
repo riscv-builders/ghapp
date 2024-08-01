@@ -76,7 +76,7 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
 		slog.Debug("no available builder")
 		// re queue
 		r.QueuedAt = time.Now().Add(3 * time.Minute)
-		c.db.NewUpdate().Model(r).WherePK().Column("queued_at").Exec(ctx)
+		c.db.NewUpdate().Model(r).WherePK().Column("queued_at", "updated_at").Exec(ctx)
 		return
 	}
 
@@ -86,14 +86,14 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
 		r.Name = fmt.Sprintf("riscv-builder-%s", bdr.Name)
 		r.Status = models.RunnerFoundBuilder
 		_, err := tx.NewUpdate().Model(r).WherePK().
-			Column("builder_id", "labels", "name", "status").Exec(ctx)
+			Column("builder_id", "labels", "name", "status", "updated_at").Exec(ctx)
 		if err != nil {
 			return err
 		}
 		bdr.Status = models.BuilderLocked
 		bdr.FailedCount = 0
 		r, err := tx.NewUpdate().Model(bdr).
-			Column("status", "failed_count").
+			Column("status", "failed_count", "updated_at").
 			WherePK().Where("status = ?", models.BuilderIdle).Exec(ctx)
 		if err != nil {
 			return err
@@ -113,7 +113,8 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
 func (c *Coor) resetBuilderID(ctx context.Context, r *models.Runner) {
 	r.BuilderID = 0
 	r.Status = models.RunnerScheduled
-	_, err := c.db.NewUpdate().Model(r).WherePK().Column("builder_id", "status").Exec(ctx)
+	_, err := c.db.NewUpdate().Model(r).WherePK().
+		Column("builder_id", "status", "updated_at").Exec(ctx)
 	if err != nil {
 		slog.Warn("reset builder error", "err", err)
 	}
@@ -151,7 +152,7 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Runner) {
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		r.Status = models.RunnerBuilderReady
 		_, err := tx.NewUpdate().Model(r).WherePK().
-			Column("status").Exec(ctx)
+			Column("status", "updated_at").Exec(ctx)
 		return err
 	})
 	return
@@ -201,7 +202,7 @@ func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
 		// make sure we don't get call again
 		r.Status = models.RunnerInProgress
 		_, err = c.db.NewUpdate().Model(r).WherePK().
-			Column("status").Exec(ctx)
+			Column("status", "updated_at").Exec(ctx)
 		if err != nil {
 			return
 		}
@@ -222,7 +223,7 @@ func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
 
 		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		c.db.NewUpdate().Model(r).WherePK().Column("status").Exec(sctx)
+		c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(sctx)
 	}(nr)
 }
 
@@ -247,7 +248,8 @@ func (c *Coor) finalizeJob(ctx context.Context, r *models.Runner) {
 	c.db.NewUpdate().Model((*models.GithubWorkflowJob)(nil)).
 		Where("id = ? AND status = ?", r.JobID, models.WorkflowJobInProgress).
 		Set("status = ?", js).
-		Set("updated_at = ?", time.Now()).Exec(ctx)
+		Set("updated_at = ?", time.Now()).
+		Exec(ctx)
 	return
 }
 
@@ -263,12 +265,15 @@ func (c *Coor) releaseBuilder(ctx context.Context, r *models.Runner) {
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		_, err := tx.NewUpdate().Model((*models.Builder)(nil)).
 			Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).
-			Set("status = ?", models.BuilderIdle).Exec(ctx)
+			Set("status = ?", models.BuilderIdle).
+			Set("updated_at = ?", time.Now()).
+			Exec(ctx)
 		if err != nil {
 			return err
 		}
 
 		_, err = tx.NewUpdate().Model(r).
+			Set("updated_at = ?", time.Now()).
 			Set("builder_id = ?", 0).WherePK().Exec(ctx)
 		return err
 	})

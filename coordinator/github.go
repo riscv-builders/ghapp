@@ -65,7 +65,8 @@ func (c *Coor) getAccessTokenForInstall(ctx context.Context, installID int64) (s
 		}
 		token.Value = install.GetToken()
 		token.ExpiredAt = install.GetExpiresAt().Time
-		_, err = c.db.NewUpdate().Model(token).Column("value", "expired_at").WherePK().Exec(ctx)
+		_, err = c.db.NewUpdate().Model(token).Column("value", "expired_at", "updated_at").
+			WherePK().Exec(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -119,7 +120,8 @@ func (c *Coor) getActionRegistrationToken(ctx context.Context, installID int64, 
 		}
 		token.ExpiredAt = at.ExpiresAt.Time
 		token.Value = at.GetToken()
-		_, err = c.db.NewUpdate().Model(token).Column("value", "expired_at").WherePK().Exec(ctx)
+		_, err = c.db.NewUpdate().Model(token).Column("value", "expired_at", "updated_at").
+			WherePK().Exec(ctx)
 		if err != nil {
 			return "", zeroTime, err
 		}
