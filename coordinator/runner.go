@@ -145,16 +145,14 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Runner) {
 	}
 	if err != nil {
 		slog.Error("prepare builder failed", "err", err)
+		c.tryQuarantineBuilder(ctx, r.BuilderID)
 		c.resetBuilderID(ctx, r)
 		return
 	}
 
-	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		r.Status = models.RunnerBuilderReady
-		_, err := tx.NewUpdate().Model(r).WherePK().
-			Column("status", "updated_at").Exec(ctx)
-		return err
-	})
+	r.Status = models.RunnerBuilderReady
+	_, err = c.db.NewUpdate().Model(r).WherePK().
+		Column("status", "updated_at").Exec(ctx)
 	return
 }
 

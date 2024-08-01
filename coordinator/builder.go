@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
@@ -116,4 +117,27 @@ func (c *Coor) prepareSSHBuilder(ctx context.Context, bdr *models.Builder) error
 	bdr.Meta["runner-version"] = string(out)
 	_, err = c.db.NewUpdate().Model(bdr).Column("meta", "updated_at").WherePK().Exec(ctx)
 	return err
+}
+
+func (c *Coor) tryQuarantineBuilder(ctx context.Context, bdrID int64) {
+	if bdrID == 0 {
+		slog.Warn("TryQuarantineBuilder failed", "err", "builder id = 0")
+		return
+	}
+	bdr := &models.Builder{ID: bdrID}
+	err := c.db.NewSelect().Model(bdr).WherePK().Limit(1).Scan(ctx, bdr)
+	if err != nil {
+		slog.Warn("TryQuarantineBuilder failed", "err", err)
+		return
+	}
+	bdr.FailedCount += 1
+	bdr.Status = models.BuilderIdle
+	if bdr.FailedCount > 2 {
+		bdr.Status = models.BuilderQuarantined
+	}
+	_, err = c.db.NewUpdate().Model(bdr).WherePK().
+		Column("status", "failed_count", "updated_at").Exec(ctx)
+	if err != nil {
+		slog.Warn("TryQuarantineBuilder failed", "err", err)
+	}
 }
