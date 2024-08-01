@@ -24,11 +24,7 @@ func New(DBURL, DBType string) (db *bun.DB, err error) {
 		sqlitedb.SetMaxOpenConns(3)
 		db = bun.NewDB(sqlitedb, sqlitedialect.New())
 	case "postgres":
-		sqldb, err := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(DBURL)))
-		if err != nil {
-			slog.Error(err.Error())
-			return nil, err
-		}
+		sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(DBURL)))
 		db = bun.NewDB(sqldb, pgdialect.New())
 	}
 	db.AddQueryHook(bundebug.NewQueryHook(

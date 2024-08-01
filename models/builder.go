@@ -26,8 +26,8 @@ type Builder struct {
 type BuilderType string
 
 const (
-	BuilderSSH   BuilderType = "ssh"
-	BuilderAgent             = "agent"
+	BuilderSSH    BuilderType = "ssh"
+	BuilderPodman             = "podman"
 )
 
 type BuilderStatus string
