@@ -11,7 +11,7 @@ import (
 
 func main() {
 	cfg := &coordinator.Config{}
-	config.From("coordinator.env").FromEnv().To(cfg)
+	config.From("ghapp.env").FromEnv().To(cfg)
 	ctrl, err := coordinator.New(cfg)
 	if err != nil {
 		log.Fatal(err)

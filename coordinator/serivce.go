@@ -40,7 +40,7 @@ func New(cfg *Config) (*Coor, error) {
 	}
 
 	var err error
-	s.db, err = db.New(cfg.DBURL, cfg.DBType)
+	s.db, err = db.New(cfg.DBType, cfg.DBURL)
 	if err != nil {
 		return nil, err
 	}

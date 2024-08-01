@@ -13,8 +13,9 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 )
 
-func New(DBURL, DBType string) (db *bun.DB, err error) {
-	switch DBType {
+func New(dbType, dbURL string) (db *bun.DB, err error) {
+	slog.Info("db connect", "type", dbType, "url", dbURL)
+	switch dbType {
 	default:
 		sqlitedb, err := sql.Open(sqliteshim.ShimName, "file:sqlite.db?cache=shared")
 		if err != nil {
@@ -24,7 +25,7 @@ func New(DBURL, DBType string) (db *bun.DB, err error) {
 		sqlitedb.SetMaxOpenConns(3)
 		db = bun.NewDB(sqlitedb, sqlitedialect.New())
 	case "postgres":
-		sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(DBURL)))
+		sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dbURL)))
 		db = bun.NewDB(sqldb, pgdialect.New())
 	}
 	db.AddQueryHook(bundebug.NewQueryHook(

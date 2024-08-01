@@ -30,7 +30,7 @@ type GithubService struct {
 
 func New(cfg *Config) (ins *GithubService, err error) {
 	ins = &GithubService{cfg: cfg}
-	ins.db, err = db.New(cfg.DBURL, cfg.DBType)
+	ins.db, err = db.New(cfg.DBType, cfg.DBURL)
 	if err != nil {
 		return
 	}

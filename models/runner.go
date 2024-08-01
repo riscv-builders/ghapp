@@ -20,16 +20,16 @@ const (
 )
 
 type Runner struct {
-	ID        int64              `bun:",pk,autoincrement,default:1" json:"id"`
+	ID        int64              `bun:",pk,autoincrement" json:"id"`
 	Builder   *Builder           `bun:"rel:belongs-to,join:builder_id=id" json:"-"`
 	BuilderID int64              `bun:"builder_id" json:"builder_id"`
 	Job       *GithubWorkflowJob `bun:"rel:belongs-to,join:job_id=id" json:"-"`
 	JobID     int64              `bun:"job_id" json:"job_id"`
 
 	Name         string
-	Labels       []string `bun:",type:text"`
-	SystemLabels []string `bun:",type:text"`
-	URL          string   `bun:",type:text"`
+	Labels       []string
+	SystemLabels []string
+	URL          string `bun:",type:text"`
 	Ephemeral    bool
 	Status       RunnerStatus
 

@@ -51,7 +51,7 @@ func (c *Coor) getAccessTokenForInstall(ctx context.Context, installID int64) (s
 
 	token := &models.Token{Type: models.InstallAccessToken}
 	err := c.db.NewSelect().Model((*models.Token)(nil)).
-		Where("type = ? AND key = ?", models.InstallAccessToken, installID).
+		Where("type = ? AND key = ?", models.InstallAccessToken, strconv.FormatInt(installID, 10)).
 		Limit(1).Scan(ctx, token)
 
 	switch err {
@@ -79,7 +79,7 @@ func (c *Coor) getAccessTokenForInstall(ctx context.Context, installID int64) (s
 		token.Key = strconv.FormatInt(installID, 10)
 		token.ExpiredAt = install.GetExpiresAt().Time
 		token.Value = install.GetToken()
-		_, err = c.db.NewInsert().Model(token).Exec(ctx)
+		_, err = c.db.NewInsert().Model(token).Ignore().Exec(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -134,7 +134,7 @@ func (c *Coor) getActionRegistrationToken(ctx context.Context, installID int64, 
 		}
 		token.ExpiredAt = at.GetExpiresAt().Time
 		token.Value = at.GetToken()
-		_, err = c.db.NewInsert().Model(token).Exec(ctx)
+		_, err = c.db.NewInsert().Model(token).Ignore().Exec(ctx)
 		if err != nil {
 			return "", zeroTime, err
 		}

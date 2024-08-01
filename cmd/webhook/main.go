@@ -19,7 +19,7 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	cfg := &webhook.Config{}
-	config.From("ghc.env").FromEnv().To(cfg)
+	config.From("ghapp.env").FromEnv().To(cfg)
 	ctrl, err := webhook.New(cfg)
 	if err != nil {
 		slog.Error("github-service", "err", err.Error())

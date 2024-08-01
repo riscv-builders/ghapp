@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -22,11 +23,12 @@ type Config struct {
 func main() {
 
 	cfg := &Config{}
-	config.From("coordinator.env").FromEnv().To(cfg)
+	config.From("ghapp.env").FromEnv().To(cfg)
 	conn, err := db.New(cfg.DBType, cfg.DBURL)
 	if err != nil {
 		log.Fatal(err)
 	}
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	app := &cli.App{
 		Name: "bun",

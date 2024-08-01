@@ -8,12 +8,12 @@ import (
 )
 
 type Builder struct {
-	ID      int64  `bun:",pk,autoincrement,default:1" json:"id"`
+	ID      int64  `bun:",pk,autoincrement" json:"id"`
 	Name    string `bun:",unique"`
 	Sponsor string
-	Token   string            `bun:",type:text" json:"token"`
-	Meta    map[string]string `bun:",type:text"`
-	Labels  []string          `bun:",type:text"`
+	Token   string `bun:",type:text" json:"token"`
+	Meta    map[string]string
+	Labels  []string
 
 	Type        BuilderType
 	Status      BuilderStatus
