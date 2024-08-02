@@ -1,4 +1,4 @@
-package webhook
+package web
 
 import (
 	"time"
@@ -26,6 +26,7 @@ type GithubService struct {
 	rt  *gin.Engine
 
 	ghtimeout time.Duration
+	stats     Stats
 }
 
 func New(cfg *Config) (ins *GithubService, err error) {

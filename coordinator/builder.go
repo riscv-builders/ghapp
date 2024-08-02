@@ -96,29 +96,6 @@ func (c *Coor) getSSHClient(ctx context.Context, bdr *models.Builder) (*ssh.Clie
 	return ssh.Dial("tcp", addr, config)
 }
 
-func (c *Coor) prepareSSHBuilder(ctx context.Context, bdr *models.Builder) error {
-	client, err := c.getSSHClient(ctx, bdr)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-
-	defer session.Close()
-	out, err := session.Output("github-act-runner --version")
-	if err != nil {
-		bdr.Status = models.BuilderQuarantined
-		c.db.NewUpdate().Model(bdr).Column("status", "updated_at").WherePK().Exec(ctx)
-		return errors.Join(err, errors.New(string(out)))
-	}
-	bdr.Meta["runner-version"] = string(out)
-	_, err = c.db.NewUpdate().Model(bdr).Column("meta", "updated_at").WherePK().Exec(ctx)
-	return err
-}
-
 func (c *Coor) tryQuarantineBuilder(ctx context.Context, bdrID int64) {
 	if bdrID == 0 {
 		slog.Warn("TryQuarantineBuilder failed", "err", "builder id = 0")

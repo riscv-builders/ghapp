@@ -294,7 +294,7 @@ func (c *Coor) doRunner(ctx context.Context, r *models.Runner) (err error) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(c.cfg.JobExecTimeLimit))
 	defer cancel()
 
-	cmd := []string{"github-act-runner", "configure",
+	configCmd := []string{"github-act-runner", "configure",
 		"--url", r.URL,
 		"--token", token,
 		"--name", r.Name,
@@ -304,44 +304,12 @@ func (c *Coor) doRunner(ctx context.Context, r *models.Runner) (err error) {
 	}
 
 	if r.Ephemeral {
-		cmd = append(cmd, "--ephemeral")
+		configCmd = append(configCmd, "--ephemeral")
 	}
 
 	switch r.Builder.Type {
 	case models.BuilderSSH:
-		cli, err := c.getSSHClient(ctx, r.Builder)
-		if err != nil {
-			slog.Debug("runner ssh client", "err", err)
-			return err
-		}
-		defer cli.Close()
-
-		session, err := cli.NewSession()
-		if err != nil {
-			slog.Debug("runner ssh session", "err", err)
-			return err
-		}
-
-		p, err := session.Output(strings.Join(cmd, " "))
-		slog.Debug("runner session configure", "runner_id", r.ID, "msg", string(p))
-		if err != nil {
-			if !strings.Contains(string(p), "runner already configured.") {
-				return err
-			}
-		}
-		session.Close()
-
-		session, err = cli.NewSession()
-		if err != nil {
-			slog.Debug("runner ssh session", "err", err)
-			return err
-		}
-		defer session.Close()
-
-		slog.Debug("runner start running", "builder_name", r.Builder.Name, "runner_id", r.ID)
-		p, err = session.Output("github-act-runner run --once")
-		slog.Debug("runner session run", "runner_id", r.ID, "msg", string(p))
-		return err
+		return c.doSSHBuilder(ctx, r, configCmd)
 	default:
 		return fmt.Errorf("unsupported runner %#v for job:%d", r.Builder, r.JobID)
 	}

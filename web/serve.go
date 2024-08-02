@@ -1,4 +1,4 @@
-package webhook
+package web
 
 import (
 	"log/slog"
@@ -33,6 +33,7 @@ func (c *GithubService) initAPI() (err error) {
 	c.rt.POST("/github/events", func(gc *gin.Context) {
 		c.GithubEvents(gc.Writer, gc.Request)
 	})
+	c.rt.GET("/stats", c.handleStats)
 
 	return err
 }
