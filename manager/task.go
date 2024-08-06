@@ -140,6 +140,8 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 	switch bdr.Type {
 	case models.BuilderSSH:
 		err = c.prepareSSHBuilder(ctx, bdr)
+	case models.BuilderPodman:
+		err = c.preparePodmanBuilder(ctx, bdr)
 	default:
 		slog.Error("unsupported builder", "type", bdr.Type)
 	}
@@ -294,22 +296,32 @@ func (c *Coor) doTask(ctx context.Context, r *models.Task) (err error) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(c.cfg.JobExecTimeLimit))
 	defer cancel()
 
-	configCmd := []string{"github-act-runner", "configure",
-		"--url", r.URL,
-		"--token", token,
-		"--name", r.Name,
-		"--no-default-labels",
-		"--system-labels", strings.Join(r.SystemLabels, ","),
-		"--labels", strings.Join(r.Labels, ","),
-	}
-
-	if r.Ephemeral {
-		configCmd = append(configCmd, "--ephemeral")
-	}
-
 	switch r.Builder.Type {
 	case models.BuilderSSH:
+		configCmd := []string{"github-act-runner", "configure",
+			"--url", r.URL,
+			"--token", token,
+			"--name", r.Name,
+			"--no-default-labels",
+			"--system-labels", strings.Join(r.SystemLabels, ","),
+			"--labels", strings.Join(r.Labels, ","),
+		}
+
+		if r.Ephemeral {
+			configCmd = append(configCmd, "--ephemeral")
+		}
 		return c.doSSHBuilder(ctx, r, configCmd)
+	case models.BuilderPodman:
+		cmd := []string{"run-once",
+			"--url", r.URL,
+			"--token", token,
+			"--name", r.Name,
+			"--no-default-labels",
+			"--system-labels", strings.Join(r.SystemLabels, ","),
+			"--labels", strings.Join(r.Labels, ","),
+			"--ephemeral",
+		}
+		return c.doPodmanBuilder(ctx, r, cmd)
 	default:
 		return fmt.Errorf("unsupported runner %#v for job:%d", r.Builder, r.JobID)
 	}
