@@ -7,19 +7,19 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type RunnerStatus string
+type TaskStatus string
 
 const (
-	RunnerScheduled    RunnerStatus = "scheduled"
-	RunnerFoundBuilder              = "found_builder"
-	RunnerBuilderReady              = "builder_ready"
-	RunnerInProgress                = "in_progress"
-	RunnerCompleted                 = "completed"
-	RunnerTimeout                   = "timeout"
-	RunnerFailed                    = "failed"
+	TaskScheduled    TaskStatus = "scheduled"
+	TaskFoundBuilder            = "found_builder"
+	TaskBuilderReady            = "builder_ready"
+	TaskInProgress              = "in_progress"
+	TaskCompleted               = "completed"
+	TaskTimeout                 = "timeout"
+	TaskFailed                  = "failed"
 )
 
-type Runner struct {
+type Task struct {
 	ID        int64              `bun:",pk,autoincrement" json:"id"`
 	Builder   *Builder           `bun:"rel:belongs-to,join:builder_id=id" json:"-"`
 	BuilderID int64              `bun:"builder_id" json:"builder_id"`
@@ -31,7 +31,7 @@ type Runner struct {
 	SystemLabels []string
 	URL          string `bun:",type:text"`
 	Ephemeral    bool
-	Status       RunnerStatus
+	Status       TaskStatus
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
@@ -39,27 +39,27 @@ type Runner struct {
 	DeadLine  time.Time `bun:"deadline,nullzero,notnull" json:"deadline"`
 }
 
-var _ bun.AfterCreateTableHook = (*Runner)(nil)
+var _ bun.AfterCreateTableHook = (*Task)(nil)
 
-func (*Runner) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
+func (*Task) AfterCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
 	_, err := query.DB().NewCreateIndex().
-		Model((*Runner)(nil)).
-		Index("runner_status_idx").
+		Model((*Task)(nil)).
+		Index("tasks_status_idx").
 		Column("status").Exec(ctx)
 	if err != nil {
 		return err
 	}
 
 	_, err = query.DB().NewCreateIndex().
-		Model((*Runner)(nil)).
-		Index("runner_queued_at_idx").
+		Model((*Task)(nil)).
+		Index("tasks_queued_at_idx").
 		Column("queued_at").Exec(ctx)
 	return err
 }
 
-var _ bun.BeforeAppendModelHook = (*Runner)(nil)
+var _ bun.BeforeAppendModelHook = (*Task)(nil)
 
-func (g *Runner) BeforeAppendModel(ctx context.Context, query bun.Query) error {
+func (g *Task) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 	switch query.(type) {
 	case *bun.InsertQuery:
 		g.CreatedAt = time.Now()

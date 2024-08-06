@@ -27,29 +27,29 @@ func (c *Coor) prepareSSHBuilder(ctx context.Context, bdr *models.Builder) error
 		c.db.NewUpdate().Model(bdr).Column("status", "updated_at").WherePK().Exec(ctx)
 		return errors.Join(err, errors.New(string(out)))
 	}
-	bdr.Meta["runner-version"] = string(out)
+	bdr.Meta["builder-version"] = string(out)
 	_, err = c.db.NewUpdate().Model(bdr).Column("meta", "updated_at").WherePK().Exec(ctx)
 	return err
 }
 
-func (c *Coor) doSSHBuilder(ctx context.Context, r *models.Runner, configCmd []string) error {
+func (c *Coor) doSSHBuilder(ctx context.Context, r *models.Task, configCmd []string) error {
 	cli, err := c.getSSHClient(ctx, r.Builder)
 	if err != nil {
-		slog.Debug("runner ssh client", "err", err)
+		slog.Debug("task ssh client", "err", err)
 		return err
 	}
 	defer cli.Close()
 
 	session, err := cli.NewSession()
 	if err != nil {
-		slog.Debug("runner ssh session", "err", err)
+		slog.Debug("task ssh session", "err", err)
 		return err
 	}
 
 	p, err := session.Output(strings.Join(configCmd, " "))
-	slog.Debug("runner session configure", "runner_id", r.ID, "msg", string(p))
+	slog.Debug("task session configure", "task_id", r.ID, "msg", string(p))
 	if err != nil {
-		if !strings.Contains(string(p), "runner already configured.") {
+		if !strings.Contains(string(p), "task already configured.") {
 			return err
 		}
 	}
@@ -57,13 +57,13 @@ func (c *Coor) doSSHBuilder(ctx context.Context, r *models.Runner, configCmd []s
 
 	session, err = cli.NewSession()
 	if err != nil {
-		slog.Debug("runner ssh session", "err", err)
+		slog.Debug("task ssh session", "err", err)
 		return err
 	}
 	defer session.Close()
 
-	slog.Debug("runner start running", "builder_name", r.Builder.Name, "runner_id", r.ID)
+	slog.Debug("task start running", "builder_name", r.Builder.Name, "task_id", r.ID)
 	p, err = session.Output("github-act-runner run --once")
-	slog.Debug("runner session run", "runner_id", r.ID, "msg", string(p))
+	slog.Debug("task session run", "task_id", r.ID, "msg", string(p))
 	return err
 }

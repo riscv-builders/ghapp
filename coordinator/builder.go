@@ -57,7 +57,7 @@ func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *m
 
 func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
 
-	runner := &models.Runner{
+	task := &models.Task{
 		BuilderID:    bdr.ID,
 		Builder:      bdr,
 		Job:          job,
@@ -67,9 +67,9 @@ func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob,
 		SystemLabels: []string{"riscv64", "riscv", "linux"},
 		URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 		Ephemeral:    true,
-		Status:       models.RunnerScheduled,
+		Status:       models.TaskScheduled,
 	}
-	_, err := c.db.NewInsert().Model(runner).Exec(ctx)
+	_, err := c.db.NewInsert().Model(task).Exec(ctx)
 	return err
 }
 
@@ -77,7 +77,7 @@ func (c *Coor) getSSHClient(ctx context.Context, bdr *models.Builder) (*ssh.Clie
 	priv := bdr.Token // private key for this builder
 	addr := bdr.Meta["addr"]
 	user := bdr.Meta["user"]
-	// check act runner available
+	// check act task available
 	if priv == "" || user == "" || addr == "" {
 		return nil, fmt.Errorf("invalid ssh builder:%s user:%s", addr, user)
 	}

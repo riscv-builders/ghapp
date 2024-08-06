@@ -55,7 +55,7 @@ func New(cfg *Config) (*Coor, error) {
 func (c *Coor) Serve(ctx context.Context) error {
 	go c.serveAvailableJob(ctx)
 	slog.Info("Coor job started")
-	return c.serveRunner(ctx)
+	return c.serveTask(ctx)
 }
 
 func (c *Coor) serveAvailableJob(ctx context.Context) {
@@ -96,12 +96,12 @@ func (c *Coor) findAvailableJob(ctx context.Context) (int, error) {
 		return count, err
 	}
 	for _, j := range jl {
-		c.newRunner(ctx, j)
+		c.newTask(ctx, j)
 	}
 	return count, err
 }
 
-func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
+func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
 	if job.Status != models.WorkflowJobQueued {
 		slog.Warn("job not queued", "id", job.ID, "status", job.Status)
 		return
@@ -114,7 +114,7 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 			return
 		}
 
-		runner := &models.Runner{
+		task := &models.Task{
 			Job:   job,
 			JobID: job.ID,
 			// Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
@@ -122,11 +122,11 @@ func (c *Coor) newRunner(ctx context.Context, job *models.GithubWorkflowJob) {
 			SystemLabels: []string{"riscv64", "riscv", "linux"},
 			URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 			Ephemeral:    true,
-			Status:       models.RunnerScheduled,
+			Status:       models.TaskScheduled,
 			QueuedAt:     time.Now(),
 			DeadLine:     time.Now().Add(35 * 24 * time.Hour),
 		}
-		_, err = tx.NewInsert().Model(runner).Ignore().Exec(ctx)
+		_, err = tx.NewInsert().Model(task).Ignore().Exec(ctx)
 		return
 	})
 	return

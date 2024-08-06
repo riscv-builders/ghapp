@@ -13,35 +13,35 @@ import (
 )
 
 type stage struct {
-	status   models.RunnerStatus
-	action   func(ctx context.Context, r *models.Runner)
+	status   models.TaskStatus
+	action   func(ctx context.Context, r *models.Task)
 	d        time.Duration
 	parallam bool
 }
 
-func (c *Coor) runnerStage(ctx context.Context, s stage) (count int, err error) {
+func (c *Coor) taskStage(ctx context.Context, s stage) (count int, err error) {
 	ctx, cancel := context.WithTimeout(ctx, s.d)
 	defer cancel()
-	slog.Debug("runner stage", "name", s.status)
+	slog.Debug("task stage", "name", s.status)
 	now := time.Now()
-	count, err = c.db.NewSelect().Model((*models.Runner)(nil)).
+	count, err = c.db.NewSelect().Model((*models.Task)(nil)).
 		Where("status = ?", s.status).
 		Where("queued_at < ?", now).
 		Count(ctx)
 
-	slog.Debug("runner stage", "name", s.status, "count", count, "err", err)
+	slog.Debug("task stage", "name", s.status, "count", count, "err", err)
 	if err != nil || count == 0 {
 		return count, err
 	}
 
-	const maxRunner = 5
+	const maxConcurrentTask = 5
 
-	rl := []*models.Runner{}
+	rl := []*models.Task{}
 	err = c.db.NewSelect().Model(&rl).
 		Where("status = ?", s.status).
 		Where("queued_at < ?", now).
 		Order("queued_at ASC").
-		Limit(min(maxRunner, count)).Scan(ctx, &rl)
+		Limit(min(maxConcurrentTask, count)).Scan(ctx, &rl)
 
 	if err != nil {
 		return count, err
@@ -51,7 +51,7 @@ func (c *Coor) runnerStage(ctx context.Context, s stage) (count int, err error) 
 		var wg sync.WaitGroup
 		wg.Add(len(rl))
 		for _, r := range rl {
-			go func(r *models.Runner) {
+			go func(r *models.Task) {
 				defer wg.Done()
 				s.action(ctx, r)
 			}(r)
@@ -66,7 +66,7 @@ func (c *Coor) runnerStage(ctx context.Context, s stage) (count int, err error) 
 	return count, err
 }
 
-func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
+func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) {
 	bdr, err := c.findBuilder(ctx, nil)
 	if err != nil {
 		slog.Error("find available builder error", "err", err)
@@ -84,7 +84,7 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
 		r.BuilderID = bdr.ID
 		r.Labels = append([]string{"riscv-builders"}, bdr.Labels...)
 		r.Name = fmt.Sprintf("riscv-builder-%s", bdr.Name)
-		r.Status = models.RunnerFoundBuilder
+		r.Status = models.TaskFoundBuilder
 		_, err := tx.NewUpdate().Model(r).WherePK().
 			Column("builder_id", "labels", "name", "status", "updated_at").Exec(ctx)
 		if err != nil {
@@ -110,9 +110,9 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Runner) {
 	return
 }
 
-func (c *Coor) resetBuilderID(ctx context.Context, r *models.Runner) {
+func (c *Coor) resetBuilderID(ctx context.Context, r *models.Task) {
 	r.BuilderID = 0
-	r.Status = models.RunnerScheduled
+	r.Status = models.TaskScheduled
 	_, err := c.db.NewUpdate().Model(r).WherePK().
 		Column("builder_id", "status", "updated_at").Exec(ctx)
 	if err != nil {
@@ -121,10 +121,10 @@ func (c *Coor) resetBuilderID(ctx context.Context, r *models.Runner) {
 	return
 }
 
-func (c *Coor) prepareBuilder(ctx context.Context, r *models.Runner) {
+func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 
-	if r.Status != models.RunnerFoundBuilder {
-		slog.Warn("prepare invalid builder", "runner_id", r.ID)
+	if r.Status != models.TaskFoundBuilder {
+		slog.Warn("prepare invalid builder", "task_id", r.ID)
 		return
 	}
 
@@ -150,25 +150,25 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Runner) {
 		return
 	}
 
-	r.Status = models.RunnerBuilderReady
+	r.Status = models.TaskBuilderReady
 	_, err = c.db.NewUpdate().Model(r).WherePK().
 		Column("status", "updated_at").Exec(ctx)
 	return
 }
 
-func (c *Coor) serveRunner(pctx context.Context) (err error) {
-	slog.Debug("serve runner")
+func (c *Coor) serveTask(pctx context.Context) (err error) {
+	slog.Debug("serve task")
 	const maxJob = 5
 	stages := []stage{
-		{models.RunnerScheduled, c.findAvailableBuilder, 10 * time.Second, false},
-		{models.RunnerFoundBuilder, c.prepareBuilder, 10 * time.Second, false},
-		{models.RunnerBuilderReady, c.runForest, 10 * time.Second, true},
+		{models.TaskScheduled, c.findAvailableBuilder, 10 * time.Second, false},
+		{models.TaskFoundBuilder, c.prepareBuilder, 10 * time.Second, false},
+		{models.TaskBuilderReady, c.runForest, 10 * time.Second, true},
 	}
 	for {
 		for _, s := range stages {
-			count, err := c.runnerStage(pctx, s)
+			count, err := c.taskStage(pctx, s)
 			if err != nil {
-				slog.Warn("serve runner failed", "stage status", s.status, "err", err)
+				slog.Warn("serve task failed", "stage status", s.status, "err", err)
 			}
 			if count < maxJob {
 				time.Sleep(time.Second)
@@ -178,27 +178,27 @@ func (c *Coor) serveRunner(pctx context.Context) (err error) {
 	return nil
 }
 
-func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
+func (c *Coor) runForest(pctx context.Context, r *models.Task) {
 
-	nr := &models.Runner{}
+	nr := &models.Task{}
 	err := c.db.NewSelect().Model(nr).
 		Relation("Job").
 		Relation("Builder").
-		Where("runner.id = ?", r.ID).Scan(pctx)
+		Where("task.id = ?", r.ID).Scan(pctx)
 	if err != nil {
 		c.resetBuilderID(pctx, r)
 		return
 	}
 
 	// run in goroutine
-	go func(r *models.Runner) {
+	go func(r *models.Task) {
 		// default of github job executime limit is 6h
 		// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
 		// we can change by config JOB_EXEC_TIME_LIMIT
 		ctx, cancel := context.WithTimeout(context.Background(), c.cfg.JobExecTimeLimit)
 		defer cancel()
 		// make sure we don't get call again
-		r.Status = models.RunnerInProgress
+		r.Status = models.TaskInProgress
 		_, err = c.db.NewUpdate().Model(r).WherePK().
 			Column("status", "updated_at").Exec(ctx)
 		if err != nil {
@@ -208,15 +208,15 @@ func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
 		defer c.releaseBuilder(ctx, r)
 		defer c.finalizeJob(ctx, r)
 
-		err := c.doRunner(ctx, r)
-		r.Status = models.RunnerFailed
+		err := c.doTask(ctx, r)
+		r.Status = models.TaskFailed
 		switch err {
 		case nil:
-			r.Status = models.RunnerCompleted
+			r.Status = models.TaskCompleted
 		case context.DeadlineExceeded:
-			r.Status = models.RunnerTimeout
+			r.Status = models.TaskTimeout
 		default:
-			slog.Error("runner failed", "err", err)
+			slog.Error("task failed", "err", err)
 		}
 
 		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -225,7 +225,7 @@ func (c *Coor) runForest(pctx context.Context, r *models.Runner) {
 	}(nr)
 }
 
-func (c *Coor) finalizeJob(ctx context.Context, r *models.Runner) {
+func (c *Coor) finalizeJob(ctx context.Context, r *models.Task) {
 	// should not happen, but...
 	if r.JobID == 0 {
 		return
@@ -233,11 +233,11 @@ func (c *Coor) finalizeJob(ctx context.Context, r *models.Runner) {
 
 	var js models.GithubWorkflowJobStatus
 	switch r.Status {
-	case models.RunnerCompleted:
+	case models.TaskCompleted:
 		js = models.WorkflowJobCompleted
-	case models.RunnerTimeout:
+	case models.TaskTimeout:
 		js = models.WorkflowJobTimeout
-	case models.RunnerFailed:
+	case models.TaskFailed:
 		js = models.WorkflowJobFailed
 	default:
 		return
@@ -251,7 +251,7 @@ func (c *Coor) finalizeJob(ctx context.Context, r *models.Runner) {
 	return
 }
 
-func (c *Coor) releaseBuilder(ctx context.Context, r *models.Runner) {
+func (c *Coor) releaseBuilder(ctx context.Context, r *models.Task) {
 	if r.BuilderID == 0 {
 		return
 	}
@@ -278,10 +278,10 @@ func (c *Coor) releaseBuilder(ctx context.Context, r *models.Runner) {
 	return
 }
 
-func (c *Coor) doRunner(ctx context.Context, r *models.Runner) (err error) {
+func (c *Coor) doTask(ctx context.Context, r *models.Task) (err error) {
 
 	if r.Builder == nil || r.BuilderID == 0 {
-		return fmt.Errorf("invalid builder for runner", "builder", r.BuilderID, "runner", r.ID)
+		return fmt.Errorf("invalid builder for task", "builder", r.BuilderID, "task", r.ID)
 	}
 
 	token, _, err := c.getActionRegistrationToken(ctx,

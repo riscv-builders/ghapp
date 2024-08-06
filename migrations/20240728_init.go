@@ -19,7 +19,7 @@ func init() {
 		if err != nil {
 			return err
 		}
-		_, err = db.NewCreateTable().Model((*models.Runner)(nil)).Exec(ctx)
+		_, err = db.NewCreateTable().Model((*models.Task)(nil)).Exec(ctx)
 		if err != nil {
 			return err
 		}
