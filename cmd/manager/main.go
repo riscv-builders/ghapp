@@ -6,13 +6,13 @@ import (
 	"log/slog"
 
 	"github.com/JeremyLoy/config"
-	"github.com/riscv-builders/ghapp/coordinator"
+	"github.com/riscv-builders/ghapp/manager"
 )
 
 func main() {
-	cfg := &coordinator.Config{}
+	cfg := &manager.Config{}
 	config.From("ghapp.env").FromEnv().To(cfg)
-	ctrl, err := coordinator.New(cfg)
+	ctrl, err := manager.New(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
