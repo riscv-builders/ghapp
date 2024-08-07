@@ -2,7 +2,9 @@ package manager
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"strconv"
+	"time"
 
 	"github.com/containers/podman/v5/pkg/bindings"
 	"github.com/containers/podman/v5/pkg/bindings/containers"
@@ -12,6 +14,8 @@ import (
 )
 
 const defaultImage = "ghcr.io/riscv-builders/action-runner:latest"
+
+var containerCreated = errors.New("podman container created")
 
 func (c *Coor) getPodmanConnection(ctx context.Context, bdr *models.Builder) (conn context.Context, err error) {
 	uri := bdr.Meta["uri"]
@@ -39,13 +43,21 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	}
 
 	spec := specgen.NewSpecGenerator(defaultImage, false)
-	spec.Name = fmt.Sprintf("%s-%s:%d", r.Job.RepoName, r.Job.Owner, r.ID)
-
+	spec.Annotations = map[string]string{
+		"repo":    r.Job.RepoName,
+		"owner":   r.Job.Owner,
+		"task_id": strconv.FormatInt(r.ID, 10),
+	}
+	spec.Timeout = uint(r.DeadLine.Sub(time.Now()).Seconds())
 	spec.Command = cmd
+	spec.Remove = func(b bool) *bool { return &b }(true)
 	createResponse, err := containers.CreateWithSpec(conn, spec, nil)
 	if err != nil {
 		return err
 	}
 	err = containers.Start(conn, createResponse.ID, nil)
-	return err
+	if err != nil {
+		return err
+	}
+	return containerCreated
 }

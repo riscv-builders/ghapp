@@ -158,6 +158,55 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 	return
 }
 
+func (c *Coor) updateTaskStatus(ctx context.Context, t *models.Task, status models.TaskStatus) {
+	t.Status = status
+	c.db.NewUpdate().Model(t).WherePK().
+		Column("status", "updated_at", "queued_at").Exec(ctx)
+	return
+}
+
+func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
+
+	// TODO check completed task
+	// TODO check deadline task
+	// TODO release all available builders
+
+	if t.JobID == 0 {
+		slog.Warn("in_progress task no job id, change to failed", "task_id", t.ID)
+		c.updateTaskStatus(ctx, t, models.TaskFailed)
+		return
+	}
+
+	if time.Now().After(t.DeadLine) {
+		//XXX: This might double exec
+		slog.Warn("task timeouted", "task_id", t.ID)
+		c.releaseBuilder(ctx, t)
+		c.updateTaskStatus(ctx, t, models.TaskTimeout)
+		return
+	}
+
+	j := &models.GithubWorkflowJob{ID: t.JobID}
+	_, err := c.db.NewSelect().Model(j).Where("id = ?", t.JobID).Limit(1).Exec(ctx, j)
+	if err != nil {
+		slog.Error("in progress find failed", "err", err, "task_id", t.ID)
+		return
+	}
+
+	switch j.Status {
+	case models.WorkflowJobQueued, models.WorkflowJobScheduled, models.WorkflowJobInProgress:
+		t.QueuedAt = time.Now().Add(time.Minute)
+		c.db.NewUpdate().Model(t).WherePK().
+			Column("queued_at").Exec(ctx)
+	case models.WorkflowJobCompleted:
+		if t.BuilderID != 0 {
+			c.releaseBuilder(ctx, t)
+		}
+		c.updateTaskStatus(ctx, t, models.TaskCompleted)
+	default:
+	}
+	return
+}
+
 func (c *Coor) serveTask(pctx context.Context) (err error) {
 	slog.Debug("serve task")
 	const maxJob = 5
@@ -165,6 +214,7 @@ func (c *Coor) serveTask(pctx context.Context) (err error) {
 		{models.TaskScheduled, c.findAvailableBuilder, 10 * time.Second, false},
 		{models.TaskFoundBuilder, c.prepareBuilder, 10 * time.Second, false},
 		{models.TaskBuilderReady, c.runForest, 10 * time.Second, true},
+		{models.TaskInProgress, c.serveInProgress, 10 * time.Second, true},
 	}
 	for {
 		for _, s := range stages {
@@ -201,23 +251,25 @@ func (c *Coor) runForest(pctx context.Context, r *models.Task) {
 		defer cancel()
 		// make sure we don't get call again
 		r.Status = models.TaskInProgress
+		r.QueuedAt = time.Now().Add(time.Minute)
 		_, err = c.db.NewUpdate().Model(r).WherePK().
-			Column("status", "updated_at").Exec(ctx)
+			Column("status", "updated_at", "queued_at").Exec(ctx)
 		if err != nil {
 			return
 		}
 
 		defer c.releaseBuilder(ctx, r)
-		defer c.finalizeJob(ctx, r)
 
 		err := c.doTask(ctx, r)
-		r.Status = models.TaskFailed
 		switch err {
+		case containerCreated:
+			return
 		case nil:
 			r.Status = models.TaskCompleted
 		case context.DeadlineExceeded:
 			r.Status = models.TaskTimeout
 		default:
+			r.Status = models.TaskFailed
 			slog.Error("task failed", "err", err)
 		}
 
@@ -225,32 +277,6 @@ func (c *Coor) runForest(pctx context.Context, r *models.Task) {
 		defer cancel()
 		c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(sctx)
 	}(nr)
-}
-
-func (c *Coor) finalizeJob(ctx context.Context, r *models.Task) {
-	// should not happen, but...
-	if r.JobID == 0 {
-		return
-	}
-
-	var js models.GithubWorkflowJobStatus
-	switch r.Status {
-	case models.TaskCompleted:
-		js = models.WorkflowJobCompleted
-	case models.TaskTimeout:
-		js = models.WorkflowJobTimeout
-	case models.TaskFailed:
-		js = models.WorkflowJobFailed
-	default:
-		return
-	}
-
-	c.db.NewUpdate().Model((*models.GithubWorkflowJob)(nil)).
-		Where("id = ? AND status = ?", r.JobID, models.WorkflowJobInProgress).
-		Set("status = ?", js).
-		Set("updated_at = ?", time.Now()).
-		Exec(ctx)
-	return
 }
 
 func (c *Coor) releaseBuilder(ctx context.Context, r *models.Task) {
@@ -271,7 +297,7 @@ func (c *Coor) releaseBuilder(ctx context.Context, r *models.Task) {
 		if err != nil {
 			return err
 		}
-
+		r.BuilderID = 0
 		_, err = tx.NewUpdate().Model(r).
 			Set("updated_at = ?", time.Now()).
 			Set("builder_id = ?", 0).WherePK().Exec(ctx)
