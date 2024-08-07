@@ -37,11 +37,15 @@ type GithubWorkflowJobStatus string
 
 const (
 	WorkflowJobQueued     GithubWorkflowJobStatus = "queued"
-	WorkflowJobScheduled                          = "scheduled"
 	WorkflowJobInProgress                         = "in_progress"
 	WorkflowJobCompleted                          = "completed"
-	WorkflowJobTimeout                            = "timeout"
-	WorkflowJobFailed                             = "failed"
+	WorkflowWaiting                               = "waiting"
+	WorkflowRequested                             = "requested"
+	WorkflowPending                               = "pending"
+
+	WorkflowJobScheduled = "scheduled" // rvb status
+	WorkflowJobTimeout   = "timeout"   // rvb status
+	WorkflowJobFailed    = "failed"    // rvb status
 )
 
 func (g *GithubWorkflowJob) IsStatusChangable(ns GithubWorkflowJobStatus) bool {

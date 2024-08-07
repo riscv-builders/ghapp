@@ -24,37 +24,6 @@ func (c *Coor) findBuilder(ctx context.Context, query *bun.Query) (*models.Build
 	return bdr, err
 }
 
-func (c *Coor) runJob(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
-	if bdr.Status != models.BuilderLocked {
-		return fmt.Errorf("builder:%d not setup", bdr.ID)
-	}
-	if job.Status != models.WorkflowJobQueued {
-		return fmt.Errorf("job:%d not queued", job.ID)
-	}
-
-	tx, err := c.db.Begin()
-	if err != nil {
-		return err
-	}
-
-	bdr.Status = models.BuilderWorking
-	tx.NewUpdate().Model(bdr).Column("status", "updated_at").WherePK().Exec(ctx)
-
-	job.Status = models.WorkflowJobScheduled
-	tx.NewUpdate().Model(job).Column("status", "updated_at").WherePK().Exec(ctx)
-
-	err = tx.Commit()
-	if err != nil {
-		return err
-	}
-
-	switch bdr.Type {
-	case models.BuilderSSH:
-		return c.runSSHBuilder(ctx, job, bdr)
-	}
-	return fmt.Errorf("unsupported builder:%s", bdr.Type)
-}
-
 func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob, bdr *models.Builder) error {
 
 	task := &models.Task{
