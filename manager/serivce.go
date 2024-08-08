@@ -20,6 +20,7 @@ type Coor struct {
 	privateKey  *rsa.PrivateKey
 	jwtExpireAt time.Time
 	jwt         string
+	cronMap     []Cron
 }
 
 func loadPrivateFile(p string) (*rsa.PrivateKey, error) {
@@ -51,7 +52,9 @@ func New(cfg *Config) (*Coor, error) {
 }
 
 func (c *Coor) Serve(ctx context.Context) error {
-	go c.serveAvailableJob(ctx)
 	slog.Info("Coor job started")
-	return c.serveTask(ctx)
+	c.Register()
+	c.RunCron(ctx)
+	<-ctx.Done()
+	return ctx.Err()
 }

@@ -4,56 +4,34 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
 
-func (c *Coor) serveAvailableJob(ctx context.Context) {
-	const maxJob = 10
-	for {
-		start := time.Now()
-		count, err := c.findAvailableJob(ctx)
-		if err != nil {
-			slog.Warn("find queued job failed", "err", err)
-			continue
-		}
-		since := time.Since(start)
-		if count < maxJob || since < 10*time.Second {
-			time.Sleep(10*time.Second - since)
-		}
-	}
-}
-
-func (c *Coor) findAvailableJob(ctx context.Context) (int, error) {
-	passiveDuration := 30 * time.Second
-	ctx, cancel := context.WithTimeout(ctx, passiveDuration)
-	defer cancel()
-
-	count, err := c.db.NewSelect().
-		Model((*models.GithubWorkflowJob)(nil)).
-		Where("status = ?", models.WorkflowJobQueued).Count(ctx)
-
-	if err != nil || count == 0 {
-		return count, err
-	}
+func (c *Coor) findAvailableJob(ctx context.Context) error {
 
 	jl := []*models.GithubWorkflowJob{}
-	err = c.db.NewSelect().Model(&jl).
+	err := c.db.NewSelect().Model(&jl).
 		Where("status = ?", models.WorkflowJobQueued).Limit(10).
 		Order("id ASC").Scan(ctx, &jl)
 
-	if err != nil {
-		return count, err
+	if err != nil || len(jl) == 0 {
+		return err
 	}
+	var wg sync.WaitGroup
+	wg.Add(len(jl))
 	for _, j := range jl {
-		c.newTask(ctx, j)
+		c.newTask(ctx, wg, j)
 	}
-	return count, err
+	wg.Wait()
+	return err
 }
 
-func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
+func (c *Coor) newTask(ctx context.Context, wg sync.WaitGroup, job *models.GithubWorkflowJob) {
+	defer wg.Done()
 	if job.Status != models.WorkflowJobQueued {
 		slog.Warn("job not queued", "id", job.ID, "status", job.Status)
 		return
