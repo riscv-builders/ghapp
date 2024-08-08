@@ -18,6 +18,7 @@ type Builder struct {
 	Type        BuilderType
 	Status      BuilderStatus
 	FailedCount int
+	TaskID      int `bun:"task_id"`
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`

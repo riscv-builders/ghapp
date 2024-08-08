@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
@@ -39,9 +40,16 @@ func (c *Coor) newTask(ctx context.Context, wg sync.WaitGroup, job *models.Githu
 
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
 		job.Status = models.WorkflowJobScheduled
-		_, err = tx.NewUpdate().Model(job).WherePK().Column("status", "updated_at").Exec(ctx)
+		row, err := tx.NewUpdate().Model(job).WherePK().
+			Where("status = ?", models.WorkflowJobQueued).
+			Column("status", "updated_at").Exec(ctx)
 		if err != nil {
 			return
+		}
+
+		a, err := row.RowsAffected()
+		if err != nil || a != 1 {
+			return errors.Wrap(err, "affected row 0")
 		}
 
 		task := &models.Task{

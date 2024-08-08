@@ -14,12 +14,15 @@ import (
 )
 
 func (c *Coor) findTasks(ctx context.Context, status models.TaskStatus, limit int) (tasks []*models.Task, err error) {
-	tasks = make([]*models.Task, 0, 10)
+	if limit < 1 {
+		limit = 1
+	}
+	tasks = make([]*models.Task, 0, limit)
 	err = c.db.NewSelect().Model(&tasks).
 		Where("status = ?", status).
 		Where("queued_at < ?", time.Now()).
 		Order("queued_at ASC").
-		Limit(10).Scan(ctx, &tasks)
+		Limit(limit).Scan(ctx, &tasks)
 	return
 }
 
@@ -37,21 +40,41 @@ func (c *Coor) doScheduledTasks(ctx context.Context) (err error) {
 	return errors.Join(eg...)
 }
 
+func (c *Coor) moveToBack(t *models.Task, d time.Duration) {
+	// re queue
+	if d == 0 {
+		d = time.Minute
+	}
+	t.QueuedAt = time.Now().Add(d)
+	t.UpdatedAt = time.Now()
+	result, err := c.db.NewUpdate().Model(r).WherePK().
+		Column("queued_at", "updated_at").Exec(ctx)
+	if err != nil {
+		slog.Error("move to back failed", "err", err)
+		return
+	}
+
+	af, err := result.RowsAffected()
+	if err != nil || af == 0 {
+		slog.Error("move to back failed", "err", err, "affect_row", af)
+	}
+	return
+}
+
 func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err error) {
 	bdr, err := c.findBuilder(ctx, nil)
 	if err != nil {
 		slog.Error("find available builder error", "err", err)
 		return
 	}
+
 	if bdr == nil || bdr.ID == 0 {
 		slog.Debug("no available builder")
-		// re queue
-		r.QueuedAt = time.Now().Add(3 * time.Minute)
-		c.db.NewUpdate().Model(r).WherePK().Column("queued_at", "updated_at").Exec(ctx)
+		c.moveToBack(r, 3*time.Minute)
 		return
 	}
 
-	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		r.BuilderID = bdr.ID
 		r.Labels = append([]string{"riscv-builders"}, bdr.Labels...)
 		r.Name = fmt.Sprintf("riscv-builder-%s", bdr.Name)
@@ -63,8 +86,9 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 		}
 		bdr.Status = models.BuilderLocked
 		bdr.FailedCount = 0
+		bdr.TaskID = r.ID
 		r, err := tx.NewUpdate().Model(bdr).
-			Column("status", "failed_count", "updated_at").
+			Column("status", "failed_count", "updated_at", "task_id").
 			WherePK().Where("status = ?", models.BuilderIdle).Exec(ctx)
 		if err != nil {
 			return err
@@ -75,10 +99,6 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 		}
 		return nil
 	})
-	if err != nil {
-		slog.Error("find builder failed", "err", err)
-	}
-	return
 }
 
 func (c *Coor) doFoundBuilder(ctx context.Context) (err error) {
@@ -114,9 +134,14 @@ func (c *Coor) prepareBuilder(ctx context.Context, wg sync.WaitGroup, r *models.
 		return
 	}
 
+	if r.BuilderID == 0 {
+		slog.Warn("prepare invalid, without builder id", "task_id", r.ID)
+		return
+	}
+
 	bdr := &models.Builder{}
 	_, err := c.db.NewSelect().Model(bdr).
-		Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).Exec(ctx)
+		Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).Exec(ctx, bdr)
 	if err != nil {
 		slog.Error("prepare builder: can't find builder", "err", err)
 		c.resetBuilderID(ctx, r)
@@ -165,16 +190,16 @@ func (c *Coor) doBuilderReady(ctx context.Context) (err error) {
 	return nil
 }
 
-func (c *Coor) startBuilder(pctx context.Context, wg sync.WaitGroup, r *models.Task) {
+func (c *Coor) startBuilder(pctx context.Context, wg sync.WaitGroup, ot *models.Task) {
 	defer wg.Done()
 
-	r = &models.Task{}
+	r := &models.Task{}
 	err := c.db.NewSelect().Model(r).
 		Relation("Job").
 		Relation("Builder").
-		Where("task.id = ?", r.ID).Scan(pctx)
+		Where("task.id = ?", ot.ID).Limit(1).Scan(pctx, r)
 	if err != nil {
-		c.resetBuilderID(pctx, r)
+		c.resetBuilderID(pctx, ot)
 		return
 	}
 
