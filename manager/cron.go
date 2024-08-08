@@ -11,7 +11,6 @@ type Cron struct {
 	Func     func(ctx context.Context) error
 	Interval time.Duration
 	Timeout  time.Duration
-	Throttle int
 }
 
 func (m *Coor) Register() {
@@ -21,35 +20,30 @@ func (m *Coor) Register() {
 			Func:     m.findAvailableJob,
 			Interval: 10 * time.Second,
 			Timeout:  10 * time.Second,
-			Throttle: 5,
 		},
 		Cron{
 			Name:     "do_scheduled_tasks",
 			Func:     m.doScheduledTasks,
 			Interval: 10 * time.Second,
 			Timeout:  10 * time.Second,
-			Throttle: 5,
 		},
 		Cron{
 			Name:     "do_found_builder",
 			Func:     m.doFoundBuilder,
 			Interval: 10 * time.Second,
-			Timeout:  10 * time.Second,
-			Throttle: 5,
+			Timeout:  10 * time.Minute,
 		},
 		Cron{
 			Name:     "do_builder_ready",
 			Func:     m.doBuilderReady,
 			Interval: 10 * time.Second,
 			Timeout:  10 * time.Second,
-			Throttle: 5,
 		},
 		Cron{
 			Name:     "do_in_progress",
 			Func:     m.doInProgress,
 			Interval: 10 * time.Second,
 			Timeout:  10 * time.Second,
-			Throttle: 5,
 		},
 	)
 }

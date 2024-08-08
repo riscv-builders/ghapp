@@ -47,7 +47,10 @@ func (c *Coor) moveToBack(t *models.Task, d time.Duration) {
 	}
 	t.QueuedAt = time.Now().Add(d)
 	t.UpdatedAt = time.Now()
-	result, err := c.db.NewUpdate().Model(r).WherePK().
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	result, err := c.db.NewUpdate().Model(t).WherePK().
 		Column("queued_at", "updated_at").Exec(ctx)
 	if err != nil {
 		slog.Error("move to back failed", "err", err)
@@ -115,7 +118,10 @@ func (c *Coor) doFoundBuilder(ctx context.Context) (err error) {
 	return
 }
 
-func (c *Coor) resetBuilderID(ctx context.Context, r *models.Task) {
+func (c *Coor) resetBuilderID(r *models.Task) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
 	r.BuilderID = 0
 	r.Status = models.TaskScheduled
 	_, err := c.db.NewUpdate().Model(r).WherePK().
@@ -144,7 +150,7 @@ func (c *Coor) prepareBuilder(ctx context.Context, wg sync.WaitGroup, r *models.
 		Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).Exec(ctx, bdr)
 	if err != nil {
 		slog.Error("prepare builder: can't find builder", "err", err)
-		c.resetBuilderID(ctx, r)
+		c.resetBuilderID(r)
 		return
 	}
 
@@ -156,10 +162,11 @@ func (c *Coor) prepareBuilder(ctx context.Context, wg sync.WaitGroup, r *models.
 	default:
 		slog.Error("unsupported builder", "type", bdr.Type)
 	}
+
 	if err != nil {
 		slog.Error("prepare builder failed", "err", err)
 		c.tryQuarantineBuilder(ctx, r.BuilderID)
-		c.resetBuilderID(ctx, r)
+		c.resetBuilderID(r)
 		return
 	}
 
@@ -190,54 +197,45 @@ func (c *Coor) doBuilderReady(ctx context.Context) (err error) {
 	return nil
 }
 
-func (c *Coor) startBuilder(pctx context.Context, wg sync.WaitGroup, ot *models.Task) {
+func (c *Coor) startBuilder(ctx context.Context, wg sync.WaitGroup, ot *models.Task) {
 	defer wg.Done()
 
 	r := &models.Task{}
 	err := c.db.NewSelect().Model(r).
 		Relation("Job").
 		Relation("Builder").
-		Where("task.id = ?", ot.ID).Limit(1).Scan(pctx, r)
+		Where("task.id = ?", ot.ID).Limit(1).Scan(ctx, r)
 	if err != nil {
-		c.resetBuilderID(pctx, ot)
+		c.resetBuilderID(ot)
 		return
 	}
 
 	// default of github job executime limit is 6h
 	// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
-	// we can change by config JOB_EXEC_TIME_LIMIT
-	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.JobExecTimeLimit)
-	defer cancel()
 	// make sure we don't get call again
-	r.Status = models.TaskInProgress
-	r.QueuedAt = time.Now().Add(time.Minute)
-	_, err = c.db.NewUpdate().Model(r).WherePK().
-		Column("status", "updated_at", "queued_at").Exec(ctx)
+	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		r.Status = models.TaskInProgress
+		r.QueuedAt = time.Now().Add(time.Second * 10)
+		_, err := c.db.NewUpdate().Model(r).WherePK().
+			Column("status", "updated_at", "queued_at").Exec(ctx)
+		return err
+	})
+
 	if err != nil {
 		return
 	}
 
-	defer c.releaseBuilder(ctx, r)
-
 	err = c.doTask(ctx, r)
 	switch err {
-	case containerCreated:
-		return
-	case nil:
-		r.Status = models.TaskCompleted
-	case context.DeadlineExceeded:
-		r.Status = models.TaskTimeout
+	case containerCreated, nil:
 	default:
 		r.Status = models.TaskFailed
+		c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(ctx)
 		slog.Error("task failed", "err", err)
 	}
-
-	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(sctx)
 }
 
-func (c *Coor) releaseBuilder(ctx context.Context, r *models.Task) {
+func (c *Coor) releaseBuilder(r *models.Task) {
 	if r.BuilderID == 0 {
 		return
 	}
@@ -251,6 +249,7 @@ func (c *Coor) releaseBuilder(ctx context.Context, r *models.Task) {
 			Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).
 			Set("status = ?", models.BuilderIdle).
 			Set("updated_at = ?", time.Now()).
+			Set("task_id = NULL").
 			Exec(ctx)
 		if err != nil {
 			return err
@@ -318,15 +317,17 @@ func (c *Coor) doInProgress(ctx context.Context) (err error) {
 	if err != nil || len(tasks) == 0 {
 		return
 	}
-
+	var wg sync.WaitGroup
+	wg.Add(len(tasks))
 	for _, t := range tasks {
-		go c.serveInProgress(ctx, t)
+		go c.serveInProgress(ctx, wg, t)
 	}
+	wg.Wait()
 	return nil
 }
 
-func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
-
+func (c *Coor) serveInProgress(ctx context.Context, wg sync.WaitGroup, t *models.Task) {
+	defer wg.Done()
 	// TODO check completed task
 	// TODO check deadline task
 	// TODO release all available builders
@@ -340,7 +341,7 @@ func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
 	if time.Now().After(t.DeadLine) {
 		//XXX: This might double exec
 		slog.Warn("task timeouted", "task_id", t.ID)
-		c.releaseBuilder(ctx, t)
+		c.releaseBuilder(t)
 		c.updateTaskStatus(ctx, t, models.TaskTimeout)
 		return
 	}
@@ -360,7 +361,7 @@ func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
 			Column("queued_at").Exec(ctx)
 	case models.WorkflowJobCompleted:
 		if t.BuilderID != 0 {
-			c.releaseBuilder(ctx, t)
+			c.releaseBuilder(t)
 		}
 		c.updateTaskStatus(ctx, t, models.TaskCompleted)
 	default:
