@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -73,7 +74,7 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 
 	if bdr == nil || bdr.ID == 0 {
 		slog.Debug("no available builder")
-		c.moveToBack(r, 3*time.Minute)
+		c.moveToBack(r, 3*time.Minute+time.Second*time.Duration(rand.Int63n(10)))
 		return
 	}
 
