@@ -18,55 +18,53 @@ func (m *Coor) Register() {
 		Cron{
 			Name:     "find_available_jobs",
 			Func:     m.findAvailableJob,
-			Interval: 10 * time.Second,
+			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},
 		Cron{
 			Name:     "do_scheduled_tasks",
 			Func:     m.doScheduledTasks,
-			Interval: 10 * time.Second,
+			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},
 		Cron{
 			Name:     "do_found_builder",
 			Func:     m.doFoundBuilder,
-			Interval: 10 * time.Second,
+			Interval: time.Second,
 			Timeout:  10 * time.Minute,
 		},
 		Cron{
 			Name:     "do_builder_ready",
 			Func:     m.doBuilderReady,
-			Interval: 10 * time.Second,
+			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},
 		Cron{
 			Name:     "do_in_progress",
 			Func:     m.doInProgress,
-			Interval: 10 * time.Second,
+			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},
 	)
 }
 
-func (m *Coor) RunCron(ctx context.Context) {
-	for _, c := range m.cronMap {
-		go func(pctx context.Context, c Cron) {
+func (m *Coor) RunCron(pctx context.Context) {
+	for {
+		for _, c := range m.cronMap {
 			slog.Info("started cron", "name", c.Name, "interval", c.Interval, "timeout", c.Timeout)
-
-			for {
-				ctx, cancel := context.WithTimeout(pctx, c.Timeout)
-				start := time.Now()
-				err := c.Func(ctx)
-				if err != nil {
-					slog.Error("cron error", "name", c.Name, "err", err)
-				}
-				cancel()
-
-				if time.Since(start) > c.Interval {
-					continue
-				}
-				time.Sleep(c.Interval - time.Since(start))
+			ctx, cancel := context.WithTimeout(pctx, c.Timeout)
+			start := time.Now()
+			err := c.Func(ctx)
+			if err != nil {
+				slog.Error("cron error", "name", c.Name, "err", err)
 			}
-		}(ctx, c)
+			cancel()
+
+			slog.Debug("cron exec", "name", c.Name, "time", time.Since(start))
+			if c.Interval < time.Since(start) {
+				continue
+			}
+			time.Sleep(c.Interval - time.Since(start))
+		}
 	}
 }

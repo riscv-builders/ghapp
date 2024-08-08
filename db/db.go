@@ -29,7 +29,7 @@ func New(dbType, dbURL string) (db *bun.DB, err error) {
 		db = bun.NewDB(sqldb, pgdialect.New())
 	}
 	db.AddQueryHook(bundebug.NewQueryHook(
-		bundebug.WithVerbose(true),
+		bundebug.WithVerbose(false),
 		bundebug.FromEnv("BUNDEBUG"),
 	))
 	return db, nil

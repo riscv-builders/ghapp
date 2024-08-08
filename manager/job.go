@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -22,17 +21,14 @@ func (c *Coor) findAvailableJob(ctx context.Context) error {
 	if err != nil || len(jl) == 0 {
 		return err
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(jl))
 	for _, j := range jl {
-		c.newTask(ctx, wg, j)
+		c.newTask(ctx, j)
 	}
-	wg.Wait()
-	return err
+	return nil
 }
 
-func (c *Coor) newTask(ctx context.Context, wg sync.WaitGroup, job *models.GithubWorkflowJob) {
-	defer wg.Done()
+func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
+	slog.Debug("new task", "job_id", job.ID)
 	if job.Status != models.WorkflowJobQueued {
 		slog.Warn("job not queued", "id", job.ID, "status", job.Status)
 		return

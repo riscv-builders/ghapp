@@ -51,6 +51,8 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	spec.Timeout = uint(r.DeadLine.Sub(time.Now()).Seconds())
 	spec.Command = cmd
 	spec.Remove = func(b bool) *bool { return &b }(true)
+	spec.VolumesFrom
+
 	createResponse, err := containers.CreateWithSpec(conn, spec, nil)
 	if err != nil {
 		return err

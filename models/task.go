@@ -24,7 +24,7 @@ type Task struct {
 	Builder   *Builder           `bun:"rel:belongs-to,join:builder_id=id" json:"-"`
 	BuilderID int64              `bun:"builder_id" json:"builder_id"`
 	Job       *GithubWorkflowJob `bun:"rel:belongs-to,join:job_id=id" json:"-"`
-	JobID     int64              `bun:"job_id" json:"job_id"`
+	JobID     int64              `bun:"job_id,unique" json:"job_id"`
 
 	Name         string
 	Labels       []string

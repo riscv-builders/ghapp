@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/riscv-builders/ghapp/models"
@@ -29,6 +28,7 @@ func (c *Coor) findTasks(ctx context.Context, status models.TaskStatus, limit in
 func (c *Coor) doScheduledTasks(ctx context.Context) (err error) {
 
 	tasks, err := c.findTasks(ctx, models.TaskScheduled, 10)
+	slog.Debug("doScheduledTasks", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
@@ -104,17 +104,34 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 	})
 }
 
+func (c *Coor) waitForAsync(ctx context.Context, tasks []*models.Task, f func(context.Context, *models.Task)) {
+
+	ch := make(chan struct{})
+	defer close(ch)
+
+	for _, t := range tasks {
+		go func(t *models.Task) {
+			f(ctx, t)
+			ch <- struct{}{}
+		}(t)
+	}
+
+	for range tasks {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			break
+		}
+	}
+}
+
 func (c *Coor) doFoundBuilder(ctx context.Context) (err error) {
 	tasks, err := c.findTasks(ctx, models.TaskFoundBuilder, 10)
+	slog.Debug("doFoundBuilder", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-	for _, t := range tasks {
-		go c.prepareBuilder(ctx, wg, t)
-	}
-	wg.Wait()
+	c.waitForAsync(ctx, tasks, c.prepareBuilder)
 	return
 }
 
@@ -132,8 +149,7 @@ func (c *Coor) resetBuilderID(r *models.Task) {
 	return
 }
 
-func (c *Coor) prepareBuilder(ctx context.Context, wg sync.WaitGroup, r *models.Task) {
-	defer wg.Done()
+func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 
 	if r.Status != models.TaskFoundBuilder {
 		slog.Warn("prepare invalid builder", "task_id", r.ID)
@@ -185,20 +201,15 @@ func (c *Coor) updateTaskStatus(ctx context.Context, t *models.Task, status mode
 
 func (c *Coor) doBuilderReady(ctx context.Context) (err error) {
 	tasks, err := c.findTasks(ctx, models.TaskBuilderReady, 10)
+	slog.Debug("doBuilderReady", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-	for _, t := range tasks {
-		go c.startBuilder(ctx, wg, t)
-	}
-	wg.Wait()
+	c.waitForAsync(ctx, tasks, c.startBuilder)
 	return nil
 }
 
-func (c *Coor) startBuilder(ctx context.Context, wg sync.WaitGroup, ot *models.Task) {
-	defer wg.Done()
+func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
 
 	r := &models.Task{}
 	err := c.db.NewSelect().Model(r).
@@ -210,9 +221,6 @@ func (c *Coor) startBuilder(ctx context.Context, wg sync.WaitGroup, ot *models.T
 		return
 	}
 
-	// default of github job executime limit is 6h
-	// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
-	// make sure we don't get call again
 	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		r.Status = models.TaskInProgress
 		r.QueuedAt = time.Now().Add(time.Second * 10)
@@ -225,14 +233,21 @@ func (c *Coor) startBuilder(ctx context.Context, wg sync.WaitGroup, ot *models.T
 		return
 	}
 
-	err = c.doTask(ctx, r)
-	switch err {
-	case containerCreated, nil:
-	default:
-		r.Status = models.TaskFailed
-		c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(ctx)
-		slog.Error("task failed", "err", err)
-	}
+	go func() {
+		// default of github job executime limit is 6h
+		// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
+		// make sure we don't get call again
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+		defer cancel()
+		err = c.doTask(ctx, r)
+		switch err {
+		case containerCreated, nil:
+		default:
+			r.Status = models.TaskFailed
+			c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(ctx)
+			slog.Error("task failed", "err", err)
+		}
+	}()
 }
 
 func (c *Coor) releaseBuilder(r *models.Task) {
@@ -314,20 +329,16 @@ func (c *Coor) doTask(ctx context.Context, r *models.Task) (err error) {
 func (c *Coor) doInProgress(ctx context.Context) (err error) {
 
 	tasks, err := c.findTasks(ctx, models.TaskInProgress, 10)
+	slog.Debug("doInProgress", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-	for _, t := range tasks {
-		go c.serveInProgress(ctx, wg, t)
-	}
-	wg.Wait()
+
+	c.waitForAsync(ctx, tasks, c.serveInProgress)
 	return nil
 }
 
-func (c *Coor) serveInProgress(ctx context.Context, wg sync.WaitGroup, t *models.Task) {
-	defer wg.Done()
+func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
 	// TODO check completed task
 	// TODO check deadline task
 	// TODO release all available builders
@@ -356,15 +367,14 @@ func (c *Coor) serveInProgress(ctx context.Context, wg sync.WaitGroup, t *models
 	switch j.Status {
 	case models.WorkflowJobQueued, models.WorkflowJobScheduled, models.WorkflowJobInProgress,
 		models.WorkflowPending, models.WorkflowRequested, models.WorkflowWaiting:
-		t.QueuedAt = time.Now().Add(time.Minute)
-		c.db.NewUpdate().Model(t).WherePK().
-			Column("queued_at").Exec(ctx)
+		c.moveToBack(t, time.Minute)
 	case models.WorkflowJobCompleted:
 		if t.BuilderID != 0 {
 			c.releaseBuilder(t)
 		}
 		c.updateTaskStatus(ctx, t, models.TaskCompleted)
 	default:
+		slog.Error("in progress invalid job status", "status", j.Status, "task_id", t.ID)
 	}
 	return
 }
