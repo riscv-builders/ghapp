@@ -29,7 +29,7 @@ func (c *Coor) findTasks(ctx context.Context, status models.TaskStatus, limit in
 
 func (c *Coor) doScheduledTasks(ctx context.Context) (err error) {
 
-	tasks, err := c.findTasks(ctx, models.TaskScheduled, 10)
+	tasks, err := c.findTasks(ctx, models.TaskPending, 10)
 	slog.Debug("doScheduledTasks", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
@@ -142,7 +142,7 @@ func (c *Coor) resetBuilderID(r *models.Task) {
 	defer cancel()
 
 	r.BuilderID = 0
-	r.Status = models.TaskScheduled
+	r.Status = models.TaskPending
 	_, err := c.db.NewUpdate().Model(r).WherePK().
 		Column("builder_id", "status", "updated_at").Exec(ctx)
 	if err != nil {

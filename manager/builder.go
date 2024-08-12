@@ -36,7 +36,7 @@ func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob,
 		SystemLabels: []string{"riscv64", "riscv", "linux"},
 		URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 		Ephemeral:    true,
-		Status:       models.TaskScheduled,
+		Status:       models.TaskPending,
 	}
 	_, err := c.db.NewInsert().Model(task).Exec(ctx)
 	return err

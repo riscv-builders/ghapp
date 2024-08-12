@@ -10,7 +10,7 @@ import (
 type TaskStatus string
 
 const (
-	TaskScheduled    TaskStatus = "scheduled"
+	TaskPending      TaskStatus = "pending"
 	TaskFoundBuilder            = "found_builder"
 	TaskBuilderReady            = "builder_preparing"
 	TaskBuilderReady            = "builder_ready"

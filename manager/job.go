@@ -56,7 +56,7 @@ func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
 			SystemLabels: []string{"riscv64", "riscv", "linux"},
 			URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 			Ephemeral:    true,
-			Status:       models.TaskScheduled,
+			Status:       models.TaskPending,
 			QueuedAt:     time.Now(),
 			DeadLine:     time.Now().Add(35 * 24 * time.Hour), // Github has 35 days limitation
 		}
