@@ -12,6 +12,7 @@ type TaskStatus string
 const (
 	TaskScheduled    TaskStatus = "scheduled"
 	TaskFoundBuilder            = "found_builder"
+	TaskBuilderReady            = "builder_preparing"
 	TaskBuilderReady            = "builder_ready"
 	TaskInProgress              = "in_progress"
 	TaskCompleted               = "completed"

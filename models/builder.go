@@ -36,6 +36,7 @@ type BuilderStatus string
 const (
 	BuilderIdle        BuilderStatus = "idle"
 	BuilderLocked                    = "locked"
+	BuilderPreparing                 = "preparing"
 	BuilderWorking                   = "working"
 	BuilderDied                      = "died"
 	BuilderQuarantined               = "quarantined"
