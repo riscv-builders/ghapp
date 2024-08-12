@@ -34,7 +34,7 @@ func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
 		return
 	}
 
-	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
+	err := c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
 		job.Status = models.WorkflowJobScheduled
 		row, err := tx.NewUpdate().Model(job).WherePK().
 			Where("status = ?", models.WorkflowJobQueued).
@@ -63,5 +63,8 @@ func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
 		_, err = tx.NewInsert().Model(task).Ignore().Exec(ctx)
 		return
 	})
+	if err != nil {
+		slog.Error("new task failed", "err", err)
+	}
 	return
 }
