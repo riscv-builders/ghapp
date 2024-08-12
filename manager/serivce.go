@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/riscv-builders/ghapp/db"
+	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
 
@@ -53,8 +54,35 @@ func New(cfg *Config) (*Coor, error) {
 
 func (c *Coor) Serve(ctx context.Context) error {
 	slog.Info("Coor job started")
-	c.Register()
-	c.RunCron(ctx)
-	<-ctx.Done()
 	return ctx.Err()
+}
+
+func (c *Coor) serveAssigned(ctx context.Context, taskID int64) {
+	defer func() {
+		if err := recover(); err != nil {
+			slog.Error("task failed", "id", taskID)
+		}
+	}()
+
+	t := &models.Task{}
+	err := c.db.NewSelect().Model(t).
+		Relation("Job").
+		Relation("Builder").
+		Where("task.id = ?", taskID).Limit(1).Scan(ctx, t)
+	if err != nil {
+		slog.Error("task failed", "id", taskID, "err", err)
+		return
+	}
+
+	steps := []func(context.Context, *models.Task) error{
+		c.prepareBuilder,
+		c.startBuilder,
+	}
+	for _, f := range steps {
+		err = f(ctx, t)
+		if err != nil {
+			c.releaseBuilder(t)
+			return
+		}
+	}
 }

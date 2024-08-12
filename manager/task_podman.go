@@ -17,7 +17,10 @@ import (
 	"github.com/riscv-builders/ghapp/models"
 )
 
-const defaultImage = "ghcr.io/riscv-builders/action-runner:latest"
+const (
+	defaultImage = "ghcr.io/riscv-builders/action-runner:latest"
+	actionCache  = "act-cache-%d"
+)
 
 var containerCreated = errors.New("podman container created")
 
@@ -39,7 +42,7 @@ func (c *Coor) preparePodmanBuilder(ctx context.Context, bdr *models.Builder, t 
 		}
 		vco := types.VolumeCreateOptions{
 			IgnoreIfExists: true,
-			Name:           fmt.Sprintf("rvb-github-%d", t.Job.InstallationID),
+			Name:           fmt.Sprintf(actionCache, t.Job.InstallationID),
 			Options: map[string]string{
 				"size":   size,
 				"device": "tmpfs",
@@ -67,12 +70,10 @@ func (c *Coor) isBuilderReady(ctx context.Context, t *models.Task) {
 		Relation("Builder").
 		Where("task.id = ?", t.ID).Limit(1).Scan(ctx, r)
 	if err != nil {
-		c.resetBuilderID(t)
 		return
 	}
 	conn, err := c.getPodmanConnection(ctx, r.Builder)
 	if err != nil {
-		c.resetBuilderID(t)
 		return
 	}
 
@@ -81,7 +82,6 @@ func (c *Coor) isBuilderReady(ctx context.Context, t *models.Task) {
 	})
 
 	if err != nil {
-		c.resetBuilderID(t)
 		return
 	}
 
@@ -108,7 +108,7 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	spec.Remove = func(b bool) *bool { return &b }(true)
 	spec.Mounts = append(spec.Mounts, specs.Mount{
 		Destination: "/root/.cache",
-		Source:      fmt.Sprintf("rvb-install-cache-%d", r.Job.InstallationID),
+		Source:      fmt.Sprintf(actionCache, r.Job.InstallationID),
 	})
 
 	createResponse, err := containers.CreateWithSpec(conn, spec, nil)

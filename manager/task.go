@@ -127,51 +127,12 @@ func (c *Coor) waitForAsync(ctx context.Context, tasks []*models.Task, f func(co
 	}
 }
 
-func (c *Coor) doBuilderAssigned(ctx context.Context) (err error) {
-	tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
-	slog.Debug("doFoundBuilder", "tasks", len(tasks), "err", err)
-	if err != nil || len(tasks) == 0 {
-		return
-	}
-	c.waitForAsync(ctx, tasks, c.prepareBuilder)
-	return
-}
-
-func (c *Coor) resetBuilderID(r *models.Task) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	r.BuilderID = 0
-	r.Status = models.TaskPending
-	_, err := c.db.NewUpdate().Model(r).WherePK().
-		Column("builder_id", "status", "updated_at").Exec(ctx)
-	if err != nil {
-		slog.Warn("reset builder error", "err", err)
-	}
-	return
-}
-
-func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
-
-	if r.Status != models.TaskBuilderAssigned {
-		slog.Warn("prepare invalid builder", "task_id", r.ID)
-		return
-	}
+func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) (err error) {
 
 	if r.BuilderID == 0 {
-		slog.Warn("prepare invalid, without builder id", "task_id", r.ID)
-		return
+		return fmt.Errorf("prepare invalid, without builder id")
 	}
-
-	bdr := &models.Builder{}
-	_, err := c.db.NewSelect().Model(bdr).
-		Where("id = ? AND status = ? AND task_id = ?", r.BuilderID, models.BuilderLocked, r.ID).
-		Exec(ctx, bdr)
-	if err != nil {
-		slog.Error("prepare builder: can't find builder", "err", err)
-		c.resetBuilderID(r)
-		return
-	}
+	bdr := r.Builder
 
 	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		r.Status = models.TaskBuilderPreparing
@@ -188,7 +149,6 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 	})
 
 	if err != nil {
-		slog.Error("prepare builder tx failed", "err", err)
 		return
 	}
 
@@ -198,14 +158,11 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 	case models.BuilderPodman:
 		err = c.preparePodmanBuilder(ctx, bdr, r)
 	default:
-		slog.Error("unsupported builder", "type", bdr.Type)
+		err = fmt.Errorf("unsupported builder :%s", bdr.Type)
 	}
 
 	if err != nil {
-		slog.Error("prepare builder failed", "err", err)
 		c.tryQuarantineBuilder(r.BuilderID)
-		c.resetBuilderID(r)
-		return
 	}
 	return
 }
@@ -217,44 +174,14 @@ func (c *Coor) updateTaskStatus(ctx context.Context, t *models.Task, status mode
 	return
 }
 
-func (c *Coor) doBuilderPreparing(ctx context.Context) (err error) {
-	tasks, err := c.findTasks(ctx, models.TaskBuilderPreparing, 10)
-	slog.Debug("doBuilderPreparing", "tasks", len(tasks), "err", err)
-	if err != nil || len(tasks) == 0 {
-		return
-	}
-	c.waitForAsync(ctx, tasks, c.isBuilderReady)
-	return nil
-}
-
-func (c *Coor) doBuilderReady(ctx context.Context) (err error) {
-	tasks, err := c.findTasks(ctx, models.TaskBuilderReady, 10)
-	slog.Debug("doBuilderReady", "tasks", len(tasks), "err", err)
-	if err != nil || len(tasks) == 0 {
-		return
-	}
-	c.waitForAsync(ctx, tasks, c.startBuilder)
-	return nil
-}
-
-func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
-
-	r := &models.Task{}
-	err := c.db.NewSelect().Model(r).
-		Relation("Job").
-		Relation("Builder").
-		Where("task.id = ?", ot.ID).Limit(1).Scan(ctx, r)
-	if err != nil {
-		c.resetBuilderID(ot)
-		return
-	}
+func (c *Coor) startBuilder(ctx context.Context, t *models.Task) (err error) {
 
 	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		r.Status = models.TaskInProgress
-		r.QueuedAt = time.Now().Add(time.Second * 10)
-		_, err := c.db.NewUpdate().Model(r).WherePK().
+		t.Status = models.TaskInProgress
+		t.QueuedAt = time.Now().Add(time.Second * 10)
+		_, err := c.db.NewUpdate().Model(t).WherePK().
 			Column("status", "updated_at", "queued_at").Exec(ctx)
-		bdr := r.Builder
+		bdr := t.Builder
 		bdr.Status = models.BuilderWorking
 		_, err = c.db.NewUpdate().Model(bdr).WherePK().
 			Column("status", "updated_at").Exec(ctx)
@@ -265,30 +192,26 @@ func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
 		return
 	}
 
-	go func() {
-		// default of github job executime limit is 6h
-		// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
-		// make sure we don't get call again
-		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
-		defer cancel()
-		err = c.doTask(ctx, r)
-		if err == nil || err == containerCreated {
-			return
+	// default of github job executime limit is 6h
+	// https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes
+	// make sure we don't get call again
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+	defer cancel()
+	err = c.doTask(ctx, t)
+	switch err.(type) {
+	case *github.RateLimitError:
+		d := 10 * time.Minute
+		rerr, ok := err.(*github.RateLimitError)
+		if ok {
+			d = rerr.Rate.Reset.Sub(time.Now())
 		}
-		switch err.(type) {
-		case *github.RateLimitError:
-			d := 10 * time.Minute
-			rerr, ok := err.(*github.RateLimitError)
-			if ok {
-				d = rerr.Rate.Reset.Sub(time.Now())
-			}
-			c.moveToBack(r, d)
-		default:
-			r.Status = models.TaskFailed
-			c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(ctx)
-			slog.Error("task failed", "err", err)
-		}
-	}()
+		c.moveToBack(t, d)
+	default:
+		t.Status = models.TaskFailed
+		c.db.NewUpdate().Model(t).WherePK().Column("status", "updated_at").Exec(ctx)
+		slog.Error("task failed", "err", err)
+	}
+	return err
 }
 
 func (c *Coor) releaseBuilder(r *models.Task) {
@@ -320,10 +243,6 @@ func (c *Coor) releaseBuilder(r *models.Task) {
 }
 
 func (c *Coor) doTask(ctx context.Context, r *models.Task) (err error) {
-
-	if r.Builder == nil || r.BuilderID == 0 {
-		return fmt.Errorf("invalid builder for task", "builder", r.BuilderID, "task", r.ID)
-	}
 
 	token, _, err := c.getActionRegistrationToken(ctx,
 		r.Job.InstallationID,
@@ -364,19 +283,6 @@ func (c *Coor) doTask(ctx context.Context, r *models.Task) (err error) {
 	default:
 		return fmt.Errorf("unsupported runner %#v for job:%d", r.Builder, r.JobID)
 	}
-	return nil
-}
-
-func (c *Coor) doInProgress(ctx context.Context) (err error) {
-
-	tasks, err := c.findTasks(ctx, models.TaskInProgress, 10)
-	slog.Debug("doInProgress", "tasks", len(tasks), "err", err)
-	if err != nil || len(tasks) == 0 {
-		return
-	}
-
-	c.waitForAsync(ctx, tasks, c.serveInProgress)
-	return nil
 }
 
 func (c *Coor) serveInProgress(ctx context.Context, t *models.Task) {
