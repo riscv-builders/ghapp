@@ -217,6 +217,16 @@ func (c *Coor) updateTaskStatus(ctx context.Context, t *models.Task, status mode
 	return
 }
 
+func (c *Coor) doBuilderPreparing(ctx context.Context) (err error) {
+	tasks, err := c.findTasks(ctx, models.TaskBuilderPreparing, 10)
+	slog.Debug("doBuilderPreparing", "tasks", len(tasks), "err", err)
+	if err != nil || len(tasks) == 0 {
+		return
+	}
+	c.waitForAsync(ctx, tasks, c.isBuilderReady)
+	return nil
+}
+
 func (c *Coor) doBuilderReady(ctx context.Context) (err error) {
 	tasks, err := c.findTasks(ctx, models.TaskBuilderReady, 10)
 	slog.Debug("doBuilderReady", "tasks", len(tasks), "err", err)
@@ -246,7 +256,7 @@ func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
 			Column("status", "updated_at", "queued_at").Exec(ctx)
 		bdr := r.Builder
 		bdr.Status = models.BuilderWorking
-		_, err := c.db.NewUpdate().Model(bdr).WherePK().
+		_, err = c.db.NewUpdate().Model(bdr).WherePK().
 			Column("status", "updated_at").Exec(ctx)
 		return err
 	})

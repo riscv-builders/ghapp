@@ -61,15 +61,34 @@ func (c *Coor) preparePodmanBuilder(ctx context.Context, bdr *models.Builder, t 
 	return err
 }
 
-func (c *Coor) isBuilderReady(ctx context.Context, bdr *models.Builder) (bool, error) {
-	conn, err := c.getPodmanConnection(ctx, bdr)
+func (c *Coor) isBuilderReady(ctx context.Context, t *models.Task) {
+	r := &models.Task{}
+	err := c.db.NewSelect().Model(r).
+		Relation("Builder").
+		Where("task.id = ?", t.ID).Limit(1).Scan(ctx, r)
 	if err != nil {
-		return false, err
+		c.resetBuilderID(t)
+		return
 	}
+	conn, err := c.getPodmanConnection(ctx, r.Builder)
+	if err != nil {
+		c.resetBuilderID(t)
+		return
+	}
+
 	summary, err := images.List(conn, &images.ListOptions{
 		Filters: map[string][]string{"reference": []string{defaultImage}},
 	})
-	return len(summary) > 0, err
+
+	if err != nil {
+		c.resetBuilderID(t)
+		return
+	}
+
+	if len(summary) == 0 {
+		c.moveToBack(t, 30*time.Second)
+	}
+	return
 }
 
 func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string) error {

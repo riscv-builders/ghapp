@@ -34,6 +34,12 @@ func (m *Coor) Register() {
 			Timeout:  10 * time.Minute,
 		},
 		Cron{
+			Name:     "do_builder_preparing",
+			Func:     m.doBuilderPreparing,
+			Interval: time.Second,
+			Timeout:  10 * time.Minute,
+		},
+		Cron{
 			Name:     "do_builder_ready",
 			Func:     m.doBuilderReady,
 			Interval: time.Second,
