@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
@@ -65,7 +66,11 @@ func (c *Coor) getSSHClient(ctx context.Context, bdr *models.Builder) (*ssh.Clie
 	return ssh.Dial("tcp", addr, config)
 }
 
-func (c *Coor) tryQuarantineBuilder(ctx context.Context, bdrID int64) {
+func (c *Coor) tryQuarantineBuilder(bdrID int64) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
 	if bdrID == 0 {
 		slog.Warn("TryQuarantineBuilder failed", "err", "builder id = 0")
 		return

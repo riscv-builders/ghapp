@@ -22,14 +22,14 @@ func (m *Coor) Register() {
 			Timeout:  10 * time.Second,
 		},
 		Cron{
-			Name:     "do_scheduled_tasks",
+			Name:     "do_pending_tasks",
 			Func:     m.doPendingTask,
 			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},
 		Cron{
-			Name:     "do_found_builder",
-			Func:     m.doFoundBuilder,
+			Name:     "do_builder_assigned",
+			Func:     m.doBuilderAssigned,
 			Interval: time.Second,
 			Timeout:  10 * time.Minute,
 		},

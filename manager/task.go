@@ -127,7 +127,7 @@ func (c *Coor) waitForAsync(ctx context.Context, tasks []*models.Task, f func(co
 	}
 }
 
-func (c *Coor) doFoundBuilder(ctx context.Context) (err error) {
+func (c *Coor) doBuilderAssigned(ctx context.Context) (err error) {
 	tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
 	slog.Debug("doFoundBuilder", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
@@ -165,10 +165,30 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 
 	bdr := &models.Builder{}
 	_, err := c.db.NewSelect().Model(bdr).
-		Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).Exec(ctx, bdr)
+		Where("id = ? AND status = ? AND task_id = ?", r.BuilderID, models.BuilderLocked, r.ID).
+		Exec(ctx, bdr)
 	if err != nil {
 		slog.Error("prepare builder: can't find builder", "err", err)
 		c.resetBuilderID(r)
+		return
+	}
+
+	err = c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		r.Status = models.TaskBuilderPreparing
+		r.QueuedAt = time.Now().Add(time.Second * 30)
+		_, err := tx.NewUpdate().Model(r).WherePK().
+			Column("status", "updated_at", "queued_at").Exec(ctx)
+		if err != nil {
+			return err
+		}
+		bdr.Status = models.BuilderPreparing
+		_, err = tx.NewUpdate().Model(bdr).WherePK().
+			Column("status", "updated_at").Exec(ctx)
+		return err
+	})
+
+	if err != nil {
+		slog.Error("prepare builder tx failed", "err", err)
 		return
 	}
 
@@ -176,21 +196,17 @@ func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 	case models.BuilderSSH:
 		err = c.prepareSSHBuilder(ctx, bdr)
 	case models.BuilderPodman:
-		err = c.preparePodmanBuilder(ctx, bdr)
+		err = c.preparePodmanBuilder(ctx, bdr, r)
 	default:
 		slog.Error("unsupported builder", "type", bdr.Type)
 	}
 
 	if err != nil {
 		slog.Error("prepare builder failed", "err", err)
-		c.tryQuarantineBuilder(ctx, r.BuilderID)
+		c.tryQuarantineBuilder(r.BuilderID)
 		c.resetBuilderID(r)
 		return
 	}
-
-	r.Status = models.TaskBuilderReady
-	_, err = c.db.NewUpdate().Model(r).WherePK().
-		Column("status", "updated_at").Exec(ctx)
 	return
 }
 
