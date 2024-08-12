@@ -244,6 +244,10 @@ func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
 		r.QueuedAt = time.Now().Add(time.Second * 10)
 		_, err := c.db.NewUpdate().Model(r).WherePK().
 			Column("status", "updated_at", "queued_at").Exec(ctx)
+		bdr := r.Builder
+		bdr.Status = models.BuilderWorking
+		_, err := c.db.NewUpdate().Model(bdr).WherePK().
+			Column("status", "updated_at").Exec(ctx)
 		return err
 	})
 
