@@ -23,7 +23,7 @@ func (m *Coor) Register() {
 		},
 		Cron{
 			Name:     "do_scheduled_tasks",
-			Func:     m.doScheduledTasks,
+			Func:     m.doPendingTask,
 			Interval: time.Second,
 			Timeout:  10 * time.Second,
 		},

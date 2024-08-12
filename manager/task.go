@@ -27,21 +27,6 @@ func (c *Coor) findTasks(ctx context.Context, status models.TaskStatus, limit in
 	return
 }
 
-func (c *Coor) doScheduledTasks(ctx context.Context) (err error) {
-
-	tasks, err := c.findTasks(ctx, models.TaskPending, 10)
-	slog.Debug("doScheduledTasks", "tasks", len(tasks), "err", err)
-	if err != nil || len(tasks) == 0 {
-		return
-	}
-
-	eg := []error{}
-	for _, t := range tasks {
-		eg = append(eg, c.findAvailableBuilder(ctx, t))
-	}
-	return errors.Join(eg...)
-}
-
 func (c *Coor) moveToBack(t *models.Task, d time.Duration) {
 	// re queue
 	if d == 0 {
@@ -66,6 +51,21 @@ func (c *Coor) moveToBack(t *models.Task, d time.Duration) {
 	return
 }
 
+func (c *Coor) doPendingTask(ctx context.Context) (err error) {
+
+	tasks, err := c.findTasks(ctx, models.TaskPending, 10)
+	slog.Debug("doPendingTasks", "status", models.TaskPending, "tasks", len(tasks), "err", err)
+	if err != nil || len(tasks) == 0 {
+		return
+	}
+
+	eg := []error{}
+	for _, t := range tasks {
+		eg = append(eg, c.findAvailableBuilder(ctx, t))
+	}
+	return errors.Join(eg...)
+}
+
 func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err error) {
 	bdr, err := c.findBuilder(ctx, nil)
 	if err != nil {
@@ -75,7 +75,7 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 
 	if bdr == nil || bdr.ID == 0 {
 		slog.Debug("no available builder")
-		c.moveToBack(r, 3*time.Minute+time.Second*time.Duration(rand.Int63n(10)))
+		c.moveToBack(r, time.Minute+time.Second*time.Duration(rand.Int63n(10)))
 		return
 	}
 
