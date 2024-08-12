@@ -10,14 +10,14 @@ import (
 type TaskStatus string
 
 const (
-	TaskPending      TaskStatus = "pending"
-	TaskFoundBuilder            = "found_builder"
-	TaskBuilderReady            = "builder_preparing"
-	TaskBuilderReady            = "builder_ready"
-	TaskInProgress              = "in_progress"
-	TaskCompleted               = "completed"
-	TaskTimeout                 = "timeout"
-	TaskFailed                  = "failed"
+	TaskPending          TaskStatus = "pending"
+	TaskBuilderAssigned             = "builder_assigned"
+	TaskBuilderPreparing            = "builder_preparing"
+	TaskBuilderReady                = "builder_ready"
+	TaskInProgress                  = "in_progress"
+	TaskCompleted                   = "completed"
+	TaskTimeout                     = "timeout"
+	TaskFailed                      = "failed"
 )
 
 type Task struct {
@@ -36,7 +36,7 @@ type Task struct {
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-	QueuedAt  time.Time `bun:queued_at,nullzero,notnull,default:"current_timestamp"`
+	QueuedAt  time.Time `bun:"queued_at,nullzero,notnull,default:current_timestamp"`
 	DeadLine  time.Time `bun:"deadline,nullzero,notnull" json:"deadline"`
 }
 

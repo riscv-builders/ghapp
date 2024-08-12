@@ -83,7 +83,7 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 		r.BuilderID = bdr.ID
 		r.Labels = append([]string{"riscv-builders"}, bdr.Labels...)
 		r.Name = fmt.Sprintf("riscv-builder-%s", bdr.Name)
-		r.Status = models.TaskFoundBuilder
+		r.Status = models.TaskBuilderAssigned
 		_, err := tx.NewUpdate().Model(r).WherePK().
 			Column("builder_id", "labels", "name", "status", "updated_at").Exec(ctx)
 		if err != nil {
@@ -128,7 +128,7 @@ func (c *Coor) waitForAsync(ctx context.Context, tasks []*models.Task, f func(co
 }
 
 func (c *Coor) doFoundBuilder(ctx context.Context) (err error) {
-	tasks, err := c.findTasks(ctx, models.TaskFoundBuilder, 10)
+	tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
 	slog.Debug("doFoundBuilder", "tasks", len(tasks), "err", err)
 	if err != nil || len(tasks) == 0 {
 		return
@@ -153,7 +153,7 @@ func (c *Coor) resetBuilderID(r *models.Task) {
 
 func (c *Coor) prepareBuilder(ctx context.Context, r *models.Task) {
 
-	if r.Status != models.TaskFoundBuilder {
+	if r.Status != models.TaskBuilderAssigned {
 		slog.Warn("prepare invalid builder", "task_id", r.ID)
 		return
 	}
