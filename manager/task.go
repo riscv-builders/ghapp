@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-github/v62/github"
 	"github.com/riscv-builders/ghapp/models"
 	"github.com/uptrace/bun"
 )
@@ -241,8 +242,17 @@ func (c *Coor) startBuilder(ctx context.Context, ot *models.Task) {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 		defer cancel()
 		err = c.doTask(ctx, r)
-		switch err {
-		case containerCreated, nil:
+		if err == nil || err == containerCreated {
+			return
+		}
+		switch err.(type) {
+		case *github.RateLimitError:
+			d := 10 * time.Minute
+			rerr, ok := err.(*github.RateLimitError)
+			if ok {
+				d = rerr.Rate.Reset.Sub(time.Now())
+			}
+			c.moveToBack(r, d)
 		default:
 			r.Status = models.TaskFailed
 			c.db.NewUpdate().Model(r).WherePK().Column("status", "updated_at").Exec(ctx)

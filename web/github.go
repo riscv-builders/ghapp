@@ -65,7 +65,7 @@ func (c *GithubService) handleInstall(event *github.InstallationEvent) (err erro
 		"target_type", install.GetTargetType())
 	switch event.GetAction() {
 	case "created":
-	case "removed":
+	case "deleted":
 	default:
 		slog.Warn("invalid install action", "action", event.GetAction())
 	}
