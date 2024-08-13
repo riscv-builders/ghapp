@@ -54,10 +54,49 @@ func New(cfg *Config) (*Coor, error) {
 
 func (c *Coor) Serve(ctx context.Context) error {
 	slog.Info("Coor job started")
+	go c.serveJob(ctx)
+	c.serveAssigned(ctx)
 	return ctx.Err()
 }
 
-func (c *Coor) serveAssigned(ctx context.Context, taskID int64) {
+func (c *Coor) serveJob(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		start := time.Now()
+		c.findAvailableJob(ctx)
+		c.doPendingTask(ctx)
+		if time.Since(start) < time.Second {
+			time.Sleep(time.Second - time.Since(start))
+		}
+	}
+}
+
+func (c *Coor) serveAssigned(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
+		if err != nil {
+			slog.Error("serve assigned failed", "err", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		for _, t := range tasks {
+			sctx, _ := context.WithTimeout(ctx, 35*24*time.Hour)
+			go c.doAssigned(sctx, t.ID)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (c *Coor) doAssigned(ctx context.Context, taskID int64) {
 	defer func() {
 		if err := recover(); err != nil {
 			slog.Error("task failed", "id", taskID)
