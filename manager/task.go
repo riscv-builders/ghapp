@@ -66,8 +66,19 @@ func (c *Coor) doPendingTask(ctx context.Context) (err error) {
 	return errors.Join(eg...)
 }
 
+func trimLabels(l []string) []string {
+	j := len(l) - 1
+	for i := range l {
+		if l[i] == "riscv-builders" {
+			l[i] = l[j]
+			j--
+		}
+	}
+	return l[:j+1]
+}
+
 func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err error) {
-	bdr, err := c.findBuilder(ctx, nil)
+	bdr, err := c.findBuilder(ctx, trimLabels(r.Labels))
 	if err != nil {
 		slog.Error("find available builder error", "err", err)
 		return

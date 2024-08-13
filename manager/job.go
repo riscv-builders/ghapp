@@ -52,7 +52,7 @@ func (c *Coor) newTask(ctx context.Context, job *models.GithubWorkflowJob) {
 			Job:   job,
 			JobID: job.ID,
 			// Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
-			// Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
+			Labels:       job.Labels,
 			SystemLabels: []string{"riscv64", "riscv", "linux"},
 			URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 			Ephemeral:    true,

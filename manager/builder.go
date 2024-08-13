@@ -13,12 +13,16 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func (c *Coor) findBuilder(ctx context.Context, query *bun.Query) (*models.Builder, error) {
-	// TODO match labels in the future
+func (c *Coor) findBuilder(ctx context.Context, labels []string) (*models.Builder, error) {
 	bdr := &models.Builder{}
-	err := c.db.NewSelect().Model(bdr).
-		Where("status = ? AND task_id IS NULL", models.BuilderIdle).
-		Limit(1).Scan(ctx, bdr)
+	query := c.db.NewSelect().Model(bdr).
+		Where("status = ? AND task_id IS NULL", models.BuilderIdle)
+
+	if len(labels) > 0 {
+		query.Where("jsonb_exists_all(labels::jsonb, array[?])", bun.In(labels))
+	}
+
+	err := query.Limit(1).Scan(ctx, bdr)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -33,7 +37,6 @@ func (c *Coor) runSSHBuilder(ctx context.Context, job *models.GithubWorkflowJob,
 		Job:          job,
 		JobID:        job.ID,
 		Name:         fmt.Sprintf("riscv-builder-%s", bdr.Name),
-		Labels:       append([]string{"riscv-builers"}, bdr.Labels...),
 		SystemLabels: []string{"riscv64", "riscv", "linux"},
 		URL:          fmt.Sprintf("https://github.com/%s/%s", job.Owner, job.RepoName),
 		Ephemeral:    true,
