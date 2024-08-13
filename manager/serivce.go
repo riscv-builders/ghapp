@@ -21,7 +21,6 @@ type Coor struct {
 	privateKey  *rsa.PrivateKey
 	jwtExpireAt time.Time
 	jwt         string
-	cronMap     []Cron
 }
 
 func loadPrivateFile(p string) (*rsa.PrivateKey, error) {
@@ -53,7 +52,6 @@ func New(cfg *Config) (*Coor, error) {
 }
 
 func (c *Coor) Serve(ctx context.Context) error {
-	slog.Info("Coor job started")
 	go c.serveJob(ctx)
 	c.serveAssigned(ctx)
 	return ctx.Err()
@@ -69,8 +67,8 @@ func (c *Coor) serveJob(ctx context.Context) {
 		start := time.Now()
 		c.findAvailableJob(ctx)
 		c.doPendingTask(ctx)
-		if time.Since(start) < time.Second {
-			time.Sleep(time.Second - time.Since(start))
+		if time.Since(start) < 10*time.Second {
+			time.Sleep(10*time.Second - time.Since(start))
 		}
 	}
 }
@@ -89,7 +87,7 @@ func (c *Coor) serveAssigned(ctx context.Context) {
 			continue
 		}
 		for _, t := range tasks {
-			sctx, _ := context.WithTimeout(ctx, 35*24*time.Hour)
+			sctx, _ := context.WithDeadline(ctx, t.DeadLine)
 			go c.doAssigned(sctx, t.ID)
 		}
 		time.Sleep(time.Second)
@@ -117,11 +115,12 @@ func (c *Coor) doAssigned(ctx context.Context, taskID int64) {
 		c.prepareBuilder,
 		c.startBuilder,
 	}
-	for _, f := range steps {
+	for i, f := range steps {
 		err = f(ctx, t)
 		if err != nil {
-			c.releaseBuilder(t)
-			return
+			slog.Error("do task failed", "id", taskID, "err", err)
 		}
+		slog.Debug("task step completed", "step", i)
 	}
+	c.releaseBuilder(t)
 }

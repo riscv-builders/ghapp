@@ -103,11 +103,13 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 		"owner":   r.Job.Owner,
 		"task_id": strconv.FormatInt(r.ID, 10),
 	}
+	spec.Name = fmt.Sprintf("rvb-task-%d", r.ID)
 	spec.Timeout = uint(r.DeadLine.Sub(time.Now()).Seconds())
 	spec.Command = cmd
 	spec.Remove = func(b bool) *bool { return &b }(true)
 	spec.Mounts = append(spec.Mounts, specs.Mount{
 		Destination: "/root/.cache",
+		Type:        "tmpfs",
 		Source:      fmt.Sprintf(actionCache, r.Job.InstallationID),
 	})
 
@@ -119,5 +121,7 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	if err != nil {
 		return err
 	}
-	return containerCreated
+
+	_, err = containers.Wait(conn, createResponse.ID, nil)
+	return err
 }

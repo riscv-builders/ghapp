@@ -199,18 +199,22 @@ func (c *Coor) startBuilder(ctx context.Context, t *models.Task) (err error) {
 	defer cancel()
 	err = c.doTask(ctx, t)
 	switch err.(type) {
+	case nil:
+		t.Status = models.TaskCompleted
 	case *github.RateLimitError:
 		d := 10 * time.Minute
 		rerr, ok := err.(*github.RateLimitError)
 		if ok {
 			d = rerr.Rate.Reset.Sub(time.Now())
 		}
-		c.moveToBack(t, d)
+		// re pending
+		t.Status = models.TaskPending
+		t.QueuedAt = time.Now().Add(d)
 	default:
 		t.Status = models.TaskFailed
-		c.db.NewUpdate().Model(t).WherePK().Column("status", "updated_at").Exec(ctx)
 		slog.Error("task failed", "err", err)
 	}
+	c.db.NewUpdate().Model(t).WherePK().Column("status", "queued_at", "updated_at").Exec(ctx)
 	return err
 }
 
@@ -225,7 +229,11 @@ func (c *Coor) releaseBuilder(r *models.Task) {
 
 	c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		_, err := tx.NewUpdate().Model((*models.Builder)(nil)).
-			Where("id = ? AND status = ?", r.BuilderID, models.BuilderLocked).
+			Where("id = ? AND status IN (?)", r.BuilderID,
+				bun.In([]models.BuilderStatus{
+					models.BuilderLocked,
+					models.BuilderPreparing,
+					models.BuilderWorking})).
 			Set("status = ?", models.BuilderIdle).
 			Set("updated_at = ?", time.Now()).
 			Set("task_id = NULL").
