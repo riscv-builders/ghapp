@@ -78,7 +78,9 @@ func trimLabels(l []string) []string {
 }
 
 func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err error) {
-	bdr, err := c.findBuilder(ctx, trimLabels(r.Labels))
+	l := make([]string, len(r.Labels))
+	copy(l, r.Labels)
+	bdr, err := c.findBuilder(ctx, trimLabels(l))
 	if err != nil {
 		slog.Error("find available builder error", "err", err)
 		return
@@ -92,11 +94,10 @@ func (c *Coor) findAvailableBuilder(ctx context.Context, r *models.Task) (err er
 
 	return c.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		r.BuilderID = bdr.ID
-		r.Labels = append([]string{"riscv-builders"}, bdr.Labels...)
 		r.Name = fmt.Sprintf("riscv-builder-%s", bdr.Name)
 		r.Status = models.TaskBuilderAssigned
 		_, err := tx.NewUpdate().Model(r).WherePK().
-			Column("builder_id", "labels", "name", "status", "updated_at").Exec(ctx)
+			Column("builder_id", "name", "status", "updated_at").Exec(ctx)
 		if err != nil {
 			return err
 		}

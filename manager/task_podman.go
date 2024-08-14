@@ -112,6 +112,11 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 		Type:        "tmpfs",
 		Source:      fmt.Sprintf(actionCache, r.Job.InstallationID),
 	})
+	if r.Builder != nil && r.Builder.Meta["podman-network"] == "host" {
+		spec.NetNS = specgen.Namespace{
+			NSMode: specgen.Host,
+		}
+	}
 
 	createResponse, err := containers.CreateWithSpec(conn, spec, nil)
 	if err != nil {

@@ -80,6 +80,7 @@ func (c *Coor) serveAssigned(ctx context.Context) {
 			return
 		default:
 		}
+		start := time.Now()
 		tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
 		if err != nil {
 			slog.Error("serve assigned failed", "err", err)
@@ -90,7 +91,11 @@ func (c *Coor) serveAssigned(ctx context.Context) {
 			sctx, _ := context.WithDeadline(ctx, t.DeadLine)
 			go c.doAssigned(sctx, t.ID)
 		}
-		time.Sleep(time.Second)
+		if time.Since(start) < 10*time.Second {
+			time.Sleep(10*time.Second - time.Since(start))
+		} else {
+			time.Sleep(time.Second)
+		}
 	}
 }
 
@@ -110,17 +115,31 @@ func (c *Coor) doAssigned(ctx context.Context, taskID int64) {
 		slog.Error("task failed", "id", taskID, "err", err)
 		return
 	}
-
-	steps := []func(context.Context, *models.Task) error{
-		c.prepareBuilder,
-		c.startBuilder,
-	}
-	for i, f := range steps {
-		err = f(ctx, t)
-		if err != nil {
-			slog.Error("do task failed", "id", taskID, "err", err)
+	ctx, cancel := context.WithTimeout(ctx, 7*time.Hour)
+	defer cancel()
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				t.UpdatedAt = time.Now()
+				c.db.NewUpdate().Model(t).WherePK().Column("updated_at").Exec(ctx)
+			}
 		}
-		slog.Debug("task step completed", "step", i)
+	}()
+
+	err = c.prepareBuilder(ctx, t)
+	if err != nil {
+		slog.Error("prepare task failed", "id", taskID, "err", err)
+	}
+	err = c.startBuilder(ctx, t)
+	if err != nil {
+		slog.Error("start task failed", "id", taskID, "err", err)
 	}
 	c.releaseBuilder(t)
+}
+
+func (c *Coor) searchAndDestroyHangedTask(ctx context.Context) {
 }
