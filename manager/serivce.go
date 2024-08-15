@@ -7,6 +7,8 @@ import (
 	"encoding/pem"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/riscv-builders/ghapp/db"
@@ -52,34 +54,44 @@ func New(cfg *Config) (*Coor, error) {
 }
 
 func (c *Coor) Serve(ctx context.Context) error {
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		slog.Info("recv signal", "name", <-sigs)
+		cancel()
+	}()
+
 	go c.serveJob(ctx)
 	c.serveAssigned(ctx)
 	return ctx.Err()
 }
 
 func (c *Coor) serveJob(ctx context.Context) {
+
+	d := time.Second
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 		start := time.Now()
 		c.findAvailableJob(ctx)
 		c.doPendingTask(ctx)
 		if time.Since(start) < 10*time.Second {
-			time.Sleep(10*time.Second - time.Since(start))
+			d = 10*time.Second - time.Since(start)
+		} else {
+			d = time.Second
+		}
+		select {
+		case <-time.NewTimer(d).C:
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
 func (c *Coor) serveAssigned(ctx context.Context) {
+	d := time.Second
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 		start := time.Now()
 		tasks, err := c.findTasks(ctx, models.TaskBuilderAssigned, 10)
 		if err != nil {
@@ -92,9 +104,15 @@ func (c *Coor) serveAssigned(ctx context.Context) {
 			go c.doAssigned(sctx, t.ID)
 		}
 		if time.Since(start) < 10*time.Second {
-			time.Sleep(10*time.Second - time.Since(start))
+			d = 10*time.Second - time.Since(start)
 		} else {
-			time.Sleep(time.Second)
+			d = time.Second
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.NewTimer(d).C:
 		}
 	}
 }
