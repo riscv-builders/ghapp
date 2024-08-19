@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containers/podman/v5/pkg/bindings/images"
 	"github.com/containers/podman/v5/pkg/specgen"
+	"github.com/dustin/go-humanize"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/riscv-builders/ghapp/models"
 )
@@ -85,12 +87,17 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	spec.Timeout = uint(r.DeadLine.Sub(time.Now()).Seconds())
 	spec.Command = cmd
 	spec.Remove = func(b bool) *bool { return &b }(true)
-	acSize := r.Builder.Meta["act-cache"]
+	acSize := r.Builder.Meta["act-cache-size"]
 	if acSize != "" {
+		sz, err := humanize.ParseBytes(acSize)
+		if err != nil {
+			slog.Warn("do podman error", "size", acSize, "default", "10GB")
+			sz = 10 * 1024 * 1024 * 1024
+		}
 		spec.Mounts = append(spec.Mounts, specs.Mount{
 			Destination: "/root/.cache",
 			Type:        "tmpfs",
-			Options:     []string{"tmpfs-size=10G"},
+			Options:     []string{fmt.Sprintf("size=%d", sz)},
 		})
 
 	}
