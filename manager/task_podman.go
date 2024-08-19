@@ -10,8 +10,6 @@ import (
 	"github.com/containers/podman/v5/pkg/bindings"
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containers/podman/v5/pkg/bindings/images"
-	"github.com/containers/podman/v5/pkg/bindings/volumes"
-	"github.com/containers/podman/v5/pkg/domain/entities/types"
 	"github.com/containers/podman/v5/pkg/specgen"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/riscv-builders/ghapp/models"
@@ -19,7 +17,6 @@ import (
 
 const (
 	defaultImage = "ghcr.io/riscv-builders/action-runner:latest"
-	actionCache  = "act-cache-%d"
 )
 
 var containerCreated = errors.New("podman container created")
@@ -34,25 +31,6 @@ func (c *Coor) preparePodmanBuilder(ctx context.Context, bdr *models.Builder, t 
 	conn, err := c.getPodmanConnection(ctx, bdr)
 	if err != nil {
 		return err
-	}
-	if _, ok := bdr.Meta["act-cache"]; ok {
-		size := bdr.Meta["act-cache-size"]
-		if size == "" {
-			size = "1G"
-		}
-		vco := types.VolumeCreateOptions{
-			IgnoreIfExists: true,
-			Name:           fmt.Sprintf(actionCache, t.Job.InstallationID),
-			Options: map[string]string{
-				"size":   size,
-				"device": "tmpfs",
-				"type":   "tmpfs",
-			},
-		}
-		_, err := volumes.Create(conn, vco, nil)
-		if err != nil {
-			return err
-		}
 	}
 
 	var policy = "newer"
@@ -107,11 +85,15 @@ func (c *Coor) doPodmanBuilder(ctx context.Context, r *models.Task, cmd []string
 	spec.Timeout = uint(r.DeadLine.Sub(time.Now()).Seconds())
 	spec.Command = cmd
 	spec.Remove = func(b bool) *bool { return &b }(true)
-	spec.Mounts = append(spec.Mounts, specs.Mount{
-		Destination: "/root/.cache",
-		Type:        "tmpfs",
-		Source:      fmt.Sprintf(actionCache, r.Job.InstallationID),
-	})
+	acSize := r.Builder.Meta["act-cache"]
+	if acSize != "" {
+		spec.Mounts = append(spec.Mounts, specs.Mount{
+			Destination: "/root/.cache",
+			Type:        "tmpfs",
+			Options:     []string{"tmpfs-size=10G"},
+		})
+
+	}
 	if r.Builder != nil && r.Builder.Meta["podman-network"] == "host" {
 		spec.NetNS = specgen.Namespace{
 			NSMode: specgen.Host,
