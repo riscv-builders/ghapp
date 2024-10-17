@@ -28,18 +28,18 @@ type BuilderType string
 
 const (
 	BuilderSSH    BuilderType = "ssh"
-	BuilderPodman             = "podman"
+	BuilderPodman BuilderType = "podman"
 )
 
 type BuilderStatus string
 
 const (
 	BuilderIdle        BuilderStatus = "idle"
-	BuilderLocked                    = "locked"
-	BuilderPreparing                 = "preparing"
-	BuilderWorking                   = "working"
-	BuilderDied                      = "died"
-	BuilderQuarantined               = "quarantined"
+	BuilderLocked      BuilderStatus = "locked"
+	BuilderPreparing   BuilderStatus = "preparing"
+	BuilderWorking     BuilderStatus = "working"
+	BuilderDied        BuilderStatus = "died"
+	BuilderQuarantined BuilderStatus = "quarantined"
 )
 
 var _ bun.AfterCreateTableHook = (*Builder)(nil)

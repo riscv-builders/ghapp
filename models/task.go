@@ -11,13 +11,13 @@ type TaskStatus string
 
 const (
 	TaskPending          TaskStatus = "pending"
-	TaskBuilderAssigned             = "builder_assigned"
-	TaskBuilderPreparing            = "builder_preparing"
-	TaskBuilderReady                = "builder_ready"
-	TaskInProgress                  = "in_progress"
-	TaskCompleted                   = "completed"
-	TaskTimeout                     = "timeout"
-	TaskFailed                      = "failed"
+	TaskBuilderAssigned  TaskStatus = "builder_assigned"
+	TaskBuilderPreparing TaskStatus = "builder_preparing"
+	TaskBuilderReady     TaskStatus = "builder_ready"
+	TaskInProgress       TaskStatus = "in_progress"
+	TaskCompleted        TaskStatus = "completed"
+	TaskTimeout          TaskStatus = "timeout"
+	TaskFailed           TaskStatus = "failed"
 )
 
 type Task struct {

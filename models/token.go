@@ -11,14 +11,14 @@ type TokenType string
 
 const (
 	InstallAccessToken      TokenType = "install_access"
-	ActionRegistrationToken           = "action_registration"
+	ActionRegistrationToken TokenType = "action_registration"
 )
 
 type Token struct {
 	ID    int64 `bun:"id,pk,autoincrement"`
 	Type  TokenType
 	Key   string
-	Value string `bun:,text`
+	Value string `bun:",text"`
 
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
