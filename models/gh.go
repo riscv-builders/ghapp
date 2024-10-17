@@ -37,11 +37,11 @@ type GithubWorkflowJobStatus string
 
 const (
 	WorkflowJobQueued     GithubWorkflowJobStatus = "queued"
-	WorkflowJobInProgress                         = "in_progress"
-	WorkflowJobCompleted                          = "completed"
-	WorkflowWaiting                               = "waiting"
-	WorkflowRequested                             = "requested"
-	WorkflowPending                               = "pending"
+	WorkflowJobInProgress GithubWorkflowJobStatus = "in_progress"
+	WorkflowJobCompleted  GithubWorkflowJobStatus = "completed"
+	WorkflowWaiting       GithubWorkflowJobStatus = "waiting"
+	WorkflowRequested     GithubWorkflowJobStatus = "requested"
+	WorkflowPending       GithubWorkflowJobStatus = "pending"
 
 	WorkflowJobScheduled = "scheduled" // rvb status
 	WorkflowJobTimeout   = "timeout"   // rvb status
