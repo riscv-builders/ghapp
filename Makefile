@@ -10,4 +10,5 @@ build:
 lint:
 	staticcheck ./...
 
-clean: rm -f bin/*
+clean:
+	rm -f bin/*
